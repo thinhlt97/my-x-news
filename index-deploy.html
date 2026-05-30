@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Touchline — Học tiếng Anh qua tin bóng đá trên X</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..600&family=Be+Vietnam+Pro:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#f3ede1;
+    --paper-2:#ece4d3;
+    --ink:#1c1916;
+    --ink-soft:#5c544a;
+    --ink-faint:#8a8070;
+    --red:#a8121f;
+    --red-deep:#7a0c16;
+    --rule:#d6cbb4;
+    --rule-strong:#bcae93;
+    --vi:#1d3a5f;
+    --tag:#2a2620;
+    --shadow:0 1px 0 rgba(0,0,0,.04),0 18px 40px -28px rgba(28,25,22,.5);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    background:var(--paper);
+    background-image:
+      radial-gradient(rgba(120,105,80,.05) 1px,transparent 1px);
+    background-size:4px 4px;
+    color:var(--ink);
+    font-family:"Be Vietnam Pro",sans-serif;
+    line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+    padding-bottom:5rem;
+  }
+  .wrap{max-width:920px;margin:0 auto;padding:0 1.25rem}
+
+  /* ---------- Masthead ---------- */
+  header.mast{
+    border-bottom:3px double var(--ink);
+    padding:2.4rem 0 1.1rem;
+    margin-bottom:1.6rem;
+    text-align:center;
+    position:relative;
+  }
+  .mast .kicker{
+    font-size:.7rem;letter-spacing:.42em;text-transform:uppercase;
+    color:var(--red);font-weight:600;margin-bottom:.6rem;
+  }
+  .mast h1{
+    font-family:"Newsreader",serif;font-weight:600;
+    font-size:clamp(2.6rem,7vw,4.7rem);line-height:.92;
+    letter-spacing:-.02em;
+  }
+  .mast h1 em{font-style:italic;color:var(--red-deep)}
+  .mast .sub{
+    margin-top:.9rem;font-size:.78rem;letter-spacing:.06em;
+    color:var(--ink-soft);display:flex;gap:.9rem;justify-content:center;
+    align-items:center;flex-wrap:wrap;
+    border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);
+    padding:.45rem 0;max-width:560px;margin-left:auto;margin-right:auto;
+  }
+  .mast .sub b{color:var(--ink);font-weight:600}
+  .dot{width:3px;height:3px;border-radius:50%;background:var(--ink-faint)}
+
+  /* ---------- Input panel ---------- */
+  .panel{
+    background:var(--paper-2);
+    border:1px solid var(--rule-strong);
+    box-shadow:var(--shadow);
+    padding:1.4rem;margin-bottom:1.6rem;position:relative;
+  }
+  .panel::before{
+    content:"NHẬP LIỆU";position:absolute;top:-.62rem;left:1.2rem;
+    background:var(--red);color:#fff;font-size:.6rem;letter-spacing:.2em;
+    font-weight:600;padding:.18rem .6rem;
+  }
+  label.fld{display:block;font-size:.72rem;letter-spacing:.12em;
+    text-transform:uppercase;color:var(--ink-soft);margin-bottom:.5rem;font-weight:600}
+  textarea{
+    width:100%;min-height:170px;resize:vertical;
+    background:#fbf8f0;border:1px solid var(--rule-strong);
+    padding:.9rem 1rem;font-family:"Newsreader",serif;font-size:1.02rem;
+    color:var(--ink);line-height:1.55;border-radius:2px;
+  }
+  textarea:focus{outline:none;border-color:var(--red);box-shadow:0 0 0 3px rgba(168,18,31,.1)}
+  .hint{font-size:.74rem;color:var(--ink-faint);margin-top:.55rem;line-height:1.5}
+  .hint code{background:#e2d9c5;padding:.05rem .35rem;border-radius:3px;
+    font-family:"Newsreader",serif;font-weight:600;color:var(--red-deep)}
+  .row{display:flex;gap:.7rem;margin-top:1rem;flex-wrap:wrap;align-items:center}
+  button{
+    font-family:"Be Vietnam Pro",sans-serif;cursor:pointer;border:none;
+    font-weight:600;letter-spacing:.02em;transition:transform .08s,background .15s;
+  }
+  .btn-go{
+    background:var(--ink);color:var(--paper);padding:.78rem 1.6rem;
+    font-size:.95rem;border-radius:2px;
+  }
+  .btn-go:hover{background:var(--red-deep)}
+  .btn-go:active{transform:translateY(1px)}
+  .btn-go:disabled{opacity:.45;cursor:not-allowed}
+  .btn-ghost{
+    background:transparent;color:var(--ink-soft);padding:.78rem 1rem;
+    font-size:.85rem;text-decoration:underline;text-underline-offset:3px;
+  }
+  .btn-ghost:hover{color:var(--red)}
+
+  /* ---------- Status ---------- */
+  #status{font-size:.82rem;color:var(--ink-soft);margin-left:auto}
+  .spin{display:inline-block;width:13px;height:13px;border:2px solid var(--rule-strong);
+    border-top-color:var(--red);border-radius:50%;animation:sp .7s linear infinite;
+    vertical-align:-2px;margin-right:.4rem}
+  @keyframes sp{to{transform:rotate(360deg)}}
+
+  /* ---------- Output ---------- */
+  .clipping{
+    background:#fbf8f0;border:1px solid var(--rule-strong);
+    box-shadow:var(--shadow);margin-bottom:1.5rem;
+    animation:rise .5s cubic-bezier(.2,.7,.3,1) both;
+  }
+  @keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+  .clip-head{
+    display:flex;align-items:baseline;gap:.7rem;flex-wrap:wrap;
+    padding:.8rem 1.2rem;border-bottom:2px solid var(--ink);
+    background:var(--paper-2);
+  }
+  .handle{font-family:"Newsreader",serif;font-weight:600;font-size:1.05rem;color:var(--red-deep)}
+  .meta-time{font-size:.72rem;color:var(--ink-faint);letter-spacing:.04em}
+  .src-badge{
+    margin-left:auto;font-size:.6rem;letter-spacing:.18em;text-transform:uppercase;
+    border:1px solid var(--rule-strong);padding:.16rem .5rem;color:var(--ink-soft);
+  }
+  .clip-body{padding:1.1rem 1.2rem 1.3rem}
+
+  .pair{padding:1rem 0;border-bottom:1px dashed var(--rule);}
+  .pair:last-child{border-bottom:none;padding-bottom:.2rem}
+  .pair:first-child{padding-top:.2rem}
+  .en{
+    font-family:"Newsreader",serif;font-size:1.22rem;line-height:1.5;
+    color:var(--ink);margin-bottom:.35rem;font-weight:420;
+  }
+  .en .num{color:var(--red);font-size:.7rem;font-weight:600;vertical-align:super;margin-right:.3rem;font-family:"Be Vietnam Pro"}
+  .vi{
+    font-size:1rem;color:var(--vi);line-height:1.55;font-weight:500;
+    padding-left:1.1rem;border-left:2px solid var(--rule-strong);
+  }
+  .vocab{margin-top:.7rem;padding-left:1.1rem;display:flex;flex-direction:column;gap:.45rem}
+  .vrow{font-size:.85rem;line-height:1.5;color:var(--ink-soft);display:flex;gap:.55rem;align-items:baseline}
+  .vrow .w{
+    font-family:"Newsreader",serif;font-weight:600;color:var(--ink);
+    background:#efe6d2;padding:.02rem .42rem;border-radius:3px;white-space:nowrap;
+  }
+  .vrow .pos{font-style:italic;color:var(--red);font-size:.76rem;white-space:nowrap}
+  .vrow .mean{color:var(--ink)}
+  .vrow .note{color:var(--ink-faint);font-size:.8rem}
+  .vlabel{font-size:.62rem;letter-spacing:.2em;text-transform:uppercase;color:var(--red);
+    font-weight:600;margin:.75rem 0 .1rem;padding-left:1.1rem}
+
+  .err{background:#fbeaec;border:1px solid var(--red);color:var(--red-deep);
+    padding:.7rem 1rem;font-size:.85rem;margin:.6rem 1.2rem 1.2rem;border-radius:3px}
+  .empty{text-align:center;color:var(--ink-faint);padding:3rem 1rem;font-family:"Newsreader",serif;font-style:italic;font-size:1.1rem}
+
+  footer{margin-top:3rem;border-top:1px solid var(--rule);padding-top:1.2rem;
+    font-size:.74rem;color:var(--ink-faint);text-align:center;line-height:1.7}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="mast">
+    <div class="kicker">X Football Digest · English Study Edition</div>
+    <h1>The <em>Touchline</em></h1>
+    <div class="sub">
+      <span><b>Sky Sports</b></span><span class="dot"></span>
+      <span><b>James Pearce</b></span><span class="dot"></span>
+      <span><b>EBL</b></span><span class="dot"></span>
+      <span><b>Paul Joyce</b></span>
+    </div>
+  </header>
+
+  <section class="panel">
+    <label class="fld" for="src">Dán tin bài từ X vào đây</label>
+    <textarea id="src" placeholder="Dán nội dung tweet vào đây...
+
+Ví dụ:
+@SkySportsNews | 29-05-2026 10:30
+Liverpool have completed the signing of the midfielder on a five-year deal. The club confirmed the fee is undisclosed."></textarea>
+    <div class="hint">
+      Mẹo: nhiều tweet thì ngăn cách nhau bằng dòng chỉ chứa <code>---</code>.
+      Dòng bắt đầu bằng <code>@tên_kênh</code> sẽ được nhận diện là nguồn (script Python tự động tạo đúng định dạng này).
+    </div>
+    <div class="row">
+      <button class="btn-go" id="go">Dịch &amp; Học</button>
+      <button class="btn-ghost" id="today">Tải tin hôm nay</button>
+      <button class="btn-ghost" id="sample">Dùng tin mẫu</button>
+      <span id="status"></span>
+    </div>
+  </section>
+
+  <main id="out">
+    <div class="empty">Chưa có bài nào. Dán tweet phía trên rồi bấm “Dịch &amp; Học”.</div>
+  </main>
+
+  <footer>
+    Mỗi câu tiếng Anh đi kèm bản dịch tiếng Việt và phần giải nghĩa từ vựng.<br>
+    Bản dịch do Claude tạo tự động — nên kiểm tra lại các thuật ngữ quan trọng.
+  </footer>
+</div>
+
+<script>
+// ===== CẤU HÌNH — sửa 1 dòng sau khi deploy Worker =====
+const WORKER_URL = "https://translate-worker.YOUR-NAME.workers.dev";
+// digest.json do GitHub Actions tạo, nằm cùng thư mục với trang này:
+const DIGEST_URL = "./digest.json";
+
+const SAMPLE = `@SkySportsNews | 29-05-2026 10:30
+Liverpool have completed the signing of the highly-rated midfielder on a five-year deal. The club have confirmed the fee remains undisclosed.
+---
+@JamesPearceLFC | 29-05-2026 09:15
+My understanding is that the deal is now over the line. The player flew in for his medical yesterday and personal terms were never an issue.
+---
+@_pauljoyce | 29-05-2026 08:40
+Everton are weighing up a late bid before the window slams shut, but face stiff competition from two Premier League rivals.`;
+
+const $ = s => document.querySelector(s);
+const out = $("#out"), status = $("#status"), goBtn = $("#go");
+
+$("#sample").addEventListener("click", () => { $("#src").value = SAMPLE; });
+$("#today").addEventListener("click", loadToday);
+goBtn.addEventListener("click", run);
+
+async function loadToday(){
+  status.innerHTML = `<span class="spin"></span>Đang tải tin hôm nay...`;
+  try{
+    const res = await fetch(DIGEST_URL, { cache: "no-store" });
+    if(!res.ok) throw new Error("HTTP " + res.status);
+    const data = await res.json();
+    const blocks = [];
+    for(const acc of (data.accounts||[])){
+      for(const tw of (acc.tweets||[])){
+        const header = `@${acc.handle} | ${tw.created_at||""}`.trim();
+        blocks.push(`${header}\n${tw.text}`);
+      }
+    }
+    if(!blocks.length){ status.textContent = "Hôm nay chưa có tin (digest.json rỗng)."; return; }
+    $("#src").value = blocks.join("\n---\n");
+    status.textContent = `Đã tải ${blocks.length} bài. Bấm “Dịch & Học”.`;
+  }catch(e){
+    status.textContent = "Không tải được digest.json: " + e.message;
+  }
+}
+
+function parseBlocks(raw){
+  return raw.split(/\n\s*---\s*\n/).map(b => b.trim()).filter(Boolean).map(block => {
+    const lines = block.split("\n");
+    let handle = "", time = "", text = block;
+    const m = lines[0].match(/^@([A-Za-z0-9_]+)\s*(?:\|\s*(.*))?$/);
+    if (m){ handle = "@" + m[1]; time = (m[2]||"").trim(); text = lines.slice(1).join("\n").trim(); }
+    return { handle, time, text };
+  }).filter(b => b.text);
+}
+
+async function translateBlock(text){
+  const res = await fetch(WORKER_URL, {
+    method:"POST",
+    headers:{ "Content-Type":"application/json" },
+    body: JSON.stringify({ text })
+  });
+  if(!res.ok){
+    let msg = "mã " + res.status;
+    try{ const e = await res.json(); if(e.error) msg = e.error; }catch{}
+    throw new Error(msg);
+  }
+  return await res.json();
+}
+
+function esc(s){ return (s||"").replace(/[&<>]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
+
+function renderClipping(block, parsed){
+  const el = document.createElement("article");
+  el.className = "clipping";
+  let head = `<div class="clip-head">`;
+  head += block.handle ? `<span class="handle">${esc(block.handle)}</span>` : `<span class="handle">Tin bài</span>`;
+  if(block.time) head += `<span class="meta-time">${esc(block.time)}</span>`;
+  head += `<span class="src-badge">X.com</span></div>`;
+
+  let body = `<div class="clip-body">`;
+  parsed.sentences.forEach((s,i) => {
+    body += `<div class="pair">`;
+    body += `<div class="en"><span class="num">${i+1}</span>${esc(s.en)}</div>`;
+    body += `<div class="vi">${esc(s.vi)}</div>`;
+    if(s.vocab && s.vocab.length){
+      body += `<div class="vlabel">Từ vựng</div><div class="vocab">`;
+      s.vocab.forEach(v => {
+        body += `<div class="vrow"><span class="w">${esc(v.word)}</span>`;
+        if(v.pos) body += `<span class="pos">${esc(v.pos)}</span>`;
+        body += `<span class="mean">${esc(v.meaning_vi)}</span>`;
+        if(v.note) body += `<span class="note">— ${esc(v.note)}</span>`;
+        body += `</div>`;
+      });
+      body += `</div>`;
+    }
+    body += `</div>`;
+  });
+  body += `</div>`;
+  el.innerHTML = head + body;
+  return el;
+}
+
+function renderError(block, msg){
+  const el = document.createElement("article");
+  el.className = "clipping";
+  el.innerHTML = `<div class="clip-head"><span class="handle">${esc(block.handle||"Tin bài")}</span><span class="src-badge">Lỗi</span></div>`
+    + `<div class="err">Không xử lý được bài này: ${esc(msg)}. Thử lại hoặc rút ngắn nội dung.</div>`;
+  return el;
+}
+
+async function run(){
+  const raw = $("#src").value.trim();
+  if(!raw){ status.textContent = "Hãy dán nội dung tweet trước."; return; }
+  const blocks = parseBlocks(raw);
+  if(!blocks.length){ status.textContent = "Không tìm thấy bài nào."; return; }
+
+  goBtn.disabled = true;
+  out.innerHTML = "";
+  let done = 0;
+
+  for(const block of blocks){
+    status.innerHTML = `<span class="spin"></span>Đang dịch ${done+1}/${blocks.length}...`;
+    try{
+      const parsed = await translateBlock(block.text);
+      out.appendChild(renderClipping(block, parsed));
+    }catch(e){
+      out.appendChild(renderError(block, e.message));
+    }
+    done++;
+  }
+  status.textContent = `Xong ${done}/${blocks.length} bài.`;
+  goBtn.disabled = false;
+}
+</script>
+</body>
+</html>
