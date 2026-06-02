@@ -28,10 +28,12 @@ import requests
 # CẤU HÌNH
 # ----------------------------------------------------------------------
 ACCOUNTS = [
-    "SkySportsNews",
+    "David_Ornstein",
     "JamesPearceLFC",
     "EBL2017",
     "_pauljoyce",
+    "FabrizioRomano",
+    "BBCSport",
 ]
 
 HOURS_BACK = 24          # khoảng thời gian quan tâm
