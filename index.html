@@ -107,6 +107,28 @@
   }
   .btn-ghost:hover{color:var(--red)}
 
+  /* ---------- Chọn nguồn ---------- */
+  .sources{margin-bottom:1rem}
+  .src-label{font-size:.72rem;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--ink-soft);margin-bottom:.5rem;font-weight:600;display:flex;
+    align-items:center;gap:.6rem;flex-wrap:wrap}
+  .src-label .mini{font-size:.7rem;letter-spacing:0;text-transform:none;
+    color:var(--red);cursor:pointer;text-decoration:underline;text-underline-offset:2px;font-weight:500}
+  .chips{display:flex;gap:.5rem;flex-wrap:wrap}
+  .chip{
+    background:#fbf8f0;border:1px solid var(--rule-strong);color:var(--ink-soft);
+    padding:.4rem .8rem;border-radius:999px;font-size:.82rem;cursor:pointer;
+    font-family:"Be Vietnam Pro",sans-serif;display:flex;align-items:center;gap:.4rem;
+    transition:all .12s;user-select:none;
+  }
+  .chip:hover{border-color:var(--red)}
+  .chip .cnt{font-size:.7rem;color:var(--ink-faint);background:#e2d9c5;
+    padding:.02rem .4rem;border-radius:999px}
+  .chip.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+  .chip.on .cnt{background:var(--red);color:#fff}
+  .chip .tick{font-weight:700;opacity:0}
+  .chip.on .tick{opacity:1}
+
   /* ---------- Status ---------- */
   #status{font-size:.82rem;color:var(--ink-soft);margin-left:auto}
   .spin{display:inline-block;width:13px;height:13px;border:2px solid var(--rule-strong);
@@ -181,6 +203,15 @@
   </header>
 
   <section class="panel">
+    <div class="sources" id="sources" style="display:none">
+      <div class="src-label">
+        <span>Chọn nguồn để tải</span>
+        <span class="mini" id="selAll">Chọn tất cả</span>
+        <span class="mini" id="selNone">Bỏ chọn</span>
+      </div>
+      <div class="chips" id="chips"></div>
+    </div>
+
     <label class="fld" for="src">Dán tin bài từ X vào đây</label>
     <textarea id="src" placeholder="Dán nội dung tweet vào đây...
 
@@ -193,7 +224,7 @@ Liverpool have completed the signing of the midfielder on a five-year deal. The 
     </div>
     <div class="row">
       <button class="btn-go" id="go">Dịch &amp; Học</button>
-      <button class="btn-ghost" id="today">Tải tin hôm nay</button>
+      <button class="btn-ghost" id="today">Tải tin đã chọn</button>
       <button class="btn-ghost" id="sample">Dùng tin mẫu</button>
       <span id="status"></span>
     </div>
@@ -227,30 +258,85 @@ Everton are weighing up a late bid before the window slams shut, but face stiff 
 const $ = s => document.querySelector(s);
 const out = $("#out"), status = $("#status"), goBtn = $("#go");
 
+let digestCache = null;            // dữ liệu digest.json tải về (giữ lại để khỏi tải nhiều lần)
+const selected = new Set();        // các kênh đang được chọn
+
 $("#sample").addEventListener("click", () => { $("#src").value = SAMPLE; });
-$("#today").addEventListener("click", loadToday);
+$("#today").addEventListener("click", loadSelected);
+$("#selAll").addEventListener("click", () => { setAll(true); });
+$("#selNone").addEventListener("click", () => { setAll(false); });
 goBtn.addEventListener("click", run);
 
-async function loadToday(){
-  status.innerHTML = `<span class="spin"></span>Đang tải tin hôm nay...`;
-  try{
-    const res = await fetch(DIGEST_URL, { cache: "no-store" });
-    if(!res.ok) throw new Error("HTTP " + res.status);
-    const data = await res.json();
-    const blocks = [];
-    for(const acc of (data.accounts||[])){
-      for(const tw of (acc.tweets||[])){
-        const header = `@${acc.handle} | ${tw.created_at||""}`.trim();
-        blocks.push(`${header}\n${tw.text}`);
-      }
+// Tải digest 1 lần, dựng các nút chọn nguồn. Gọi tự động khi mở trang.
+async function ensureDigest(){
+  if(digestCache) return digestCache;
+  const res = await fetch(DIGEST_URL, { cache: "no-store" });
+  if(!res.ok) throw new Error("HTTP " + res.status);
+  digestCache = await res.json();
+  return digestCache;
+}
+
+function setAll(on){
+  selected.clear();
+  if(on && digestCache){
+    for(const acc of (digestCache.accounts||[])){
+      if((acc.tweets||[]).length) selected.add(acc.handle);
     }
-    if(!blocks.length){ status.textContent = "Hôm nay chưa có tin (digest.json rỗng)."; return; }
-    $("#src").value = blocks.join("\n---\n");
-    status.textContent = `Đã tải ${blocks.length} bài. Bấm “Dịch & Học”.`;
+  }
+  document.querySelectorAll(".chip").forEach(c => {
+    c.classList.toggle("on", on && selected.has(c.dataset.handle));
+  });
+}
+
+async function buildSourceChips(){
+  try{
+    const data = await ensureDigest();
+    const chips = $("#chips");
+    chips.innerHTML = "";
+    const accts = (data.accounts||[]).filter(a => (a.tweets||[]).length);
+    if(!accts.length){
+      status.textContent = "Hôm nay chưa có tin nào trong digest.json.";
+      return;
+    }
+    for(const acc of accts){
+      const chip = document.createElement("div");
+      chip.className = "chip on";       // mặc định chọn hết
+      chip.dataset.handle = acc.handle;
+      chip.innerHTML = `<span class="tick">✓</span>@${acc.handle}<span class="cnt">${acc.tweets.length}</span>`;
+      chip.addEventListener("click", () => {
+        const on = chip.classList.toggle("on");
+        if(on) selected.add(acc.handle); else selected.delete(acc.handle);
+      });
+      chips.appendChild(chip);
+      selected.add(acc.handle);
+    }
+    $("#sources").style.display = "block";
+    const total = accts.reduce((n,a)=>n+a.tweets.length,0);
+    status.textContent = `Có ${total} bài từ ${accts.length} nguồn. Chọn nguồn rồi bấm “Tải tin đã chọn”.`;
   }catch(e){
-    status.textContent = "Không tải được digest.json: " + e.message;
+    // Không tải được thì thôi, vẫn dán tay được như thường.
+    status.textContent = "Chưa tải được danh sách nguồn (có thể tin chưa cập nhật). Bạn vẫn dán tay được.";
   }
 }
+
+function loadSelected(){
+  if(!digestCache){ buildSourceChips(); return; }
+  if(!selected.size){ status.textContent = "Bạn chưa chọn nguồn nào."; return; }
+  const blocks = [];
+  for(const acc of (digestCache.accounts||[])){
+    if(!selected.has(acc.handle)) continue;
+    for(const tw of (acc.tweets||[])){
+      const header = `@${acc.handle} | ${tw.created_at||""}`.trim();
+      blocks.push(`${header}\n${tw.text}`);
+    }
+  }
+  if(!blocks.length){ status.textContent = "Các nguồn đã chọn không có bài nào."; return; }
+  $("#src").value = blocks.join("\n---\n");
+  status.textContent = `Đã nạp ${blocks.length} bài từ ${selected.size} nguồn. Bấm “Dịch & Học”.`;
+}
+
+// Tự dựng nút nguồn ngay khi mở trang
+buildSourceChips();
 
 function parseBlocks(raw){
   return raw.split(/\n\s*---\s*\n/).map(b => b.trim()).filter(Boolean).map(block => {
