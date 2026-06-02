@@ -37,7 +37,7 @@ ACCOUNTS = [
 ]
 
 HOURS_BACK = 24          # khoảng thời gian quan tâm
-MAX_PER_ACCOUNT = 40     # giới hạn số tweet đọc mỗi kênh (kiểm soát chi phí)
+MAX_PER_ACCOUNT = 20     # giới hạn số tweet đọc mỗi kênh (kiểm soát chi phí)
 INCLUDE_REPLIES = False  # bỏ qua các tweet trả lời người khác
 INCLUDE_RETWEETS = False # bỏ qua retweet (chỉ lấy bài gốc của kênh)
 
