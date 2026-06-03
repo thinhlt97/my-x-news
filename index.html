@@ -246,12 +246,6 @@ const WORKER_URL = "https://x-translate-proxy.vercel.app/api/translate";
 // digest.json do GitHub Actions tạo, nằm cùng thư mục với trang này:
 const DIGEST_URL = "./digest.json";
 
-// Nghỉ giữa mỗi lượt dịch để không vượt giới hạn miễn phí của Gemini (~20 lượt/phút).
-// 3200ms ≈ 18-19 lượt/phút, an toàn dưới ngưỡng 20.
-const DELAY_MS = 3200;
-
-function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
-
 const SAMPLE = `@SkySportsNews | 29-05-2026 10:30
 Liverpool have completed the signing of the highly-rated midfielder on a five-year deal. The club have confirmed the fee remains undisclosed.
 ---
@@ -355,26 +349,17 @@ function parseBlocks(raw){
 }
 
 async function translateBlock(text){
-  for(let attempt = 0; attempt < 4; attempt++){
-    const res = await fetch(WORKER_URL, {
-      method:"POST",
-      headers:{ "Content-Type":"application/json" },
-      body: JSON.stringify({ text })
-    });
-    if(res.ok) return await res.json();
-
+  const res = await fetch(WORKER_URL, {
+    method:"POST",
+    headers:{ "Content-Type":"application/json" },
+    body: JSON.stringify({ text })
+  });
+  if(!res.ok){
     let msg = "mã " + res.status;
     try{ const e = await res.json(); if(e.error) msg = e.error; }catch{}
-
-    // Nếu bị giới hạn tốc độ (429), chờ lâu dần rồi thử lại
-    if(msg.includes("429") && attempt < 3){
-      const wait = 6000 * (attempt + 1);   // 6s, 12s, 18s
-      status.innerHTML = `<span class="spin"></span>Bị giới hạn tốc độ, chờ ${Math.round(wait/1000)}s rồi thử lại...`;
-      await sleep(wait);
-      continue;
-    }
     throw new Error(msg);
   }
+  return await res.json();
 }
 
 function esc(s){ return (s||"").replace(/[&<>]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
@@ -428,9 +413,7 @@ async function run(){
   out.innerHTML = "";
   let done = 0;
 
-  for(let bi = 0; bi < blocks.length; bi++){
-    const block = blocks[bi];
-    if(bi > 0) await sleep(DELAY_MS);   // nghỉ giữa các bài để tránh 429
+  for(const block of blocks){
     status.innerHTML = `<span class="spin"></span>Đang dịch ${done+1}/${blocks.length}...`;
     try{
       const parsed = await translateBlock(block.text);
