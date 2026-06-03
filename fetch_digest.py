@@ -19,6 +19,7 @@ Cài đặt:
 import os
 import sys
 import json
+import time
 import argparse
 from datetime import datetime, timedelta, timezone
 
@@ -37,9 +38,12 @@ ACCOUNTS = [
 ]
 
 HOURS_BACK = 24          # khoảng thời gian quan tâm
-MAX_PER_ACCOUNT = 20     # giới hạn số tweet đọc mỗi kênh (kiểm soát chi phí)
+MAX_PER_ACCOUNT = 40     # giới hạn số tweet đọc mỗi kênh (kiểm soát chi phí)
 INCLUDE_REPLIES = False  # bỏ qua các tweet trả lời người khác
 INCLUDE_RETWEETS = False # bỏ qua retweet (chỉ lấy bài gốc của kênh)
+
+DELAY_BETWEEN = 2.0      # nghỉ (giây) giữa mỗi kênh để không bị 429
+MAX_RETRIES = 4          # số lần thử lại khi gặp 429 (giới hạn tốc độ)
 
 # twitterapi.io — dịch vụ bên thứ ba, không cần tài khoản developer của X.
 # Endpoint/tham số có thể thay đổi: kiểm tra https://docs.twitterapi.io
@@ -70,7 +74,15 @@ def fetch_account(handle: str, since: datetime) -> list[dict]:
     headers = {"x-api-key": API_KEY}
     params = {"userName": handle, "count": MAX_PER_ACCOUNT}
 
-    resp = requests.get(url, headers=headers, params=params, timeout=30)
+    # Thử lại khi bị 429 (Too Many Requests): chờ lâu dần 2s, 4s, 8s...
+    resp = None
+    for attempt in range(MAX_RETRIES):
+        resp = requests.get(url, headers=headers, params=params, timeout=30)
+        if resp.status_code != 429:
+            break
+        wait = DELAY_BETWEEN * (2 ** attempt)
+        print(f"    @{handle}: bị 429, chờ {wait:.0f}s rồi thử lại...", file=sys.stderr)
+        time.sleep(wait)
     resp.raise_for_status()
     payload = resp.json()
 
@@ -196,7 +208,9 @@ def main():
     since = datetime.now(timezone.utc) - timedelta(hours=HOURS_BACK)
     grouped = {}
 
-    for handle in ACCOUNTS:
+    for i, handle in enumerate(ACCOUNTS):
+        if i > 0:
+            time.sleep(DELAY_BETWEEN)   # nghỉ giữa các kênh để không bị 429
         try:
             tweets = fetch_account(handle, since)
             grouped[handle] = tweets
