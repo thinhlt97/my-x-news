@@ -156,6 +156,15 @@
   }
   .clip-body{padding:1.1rem 1.2rem 1.3rem}
 
+  .original{
+    background:var(--paper-2);border:1px solid var(--rule);border-left:3px solid var(--red);
+    padding:.7rem .9rem;margin-bottom:1rem;border-radius:2px;
+  }
+  .original .olabel{font-size:.6rem;letter-spacing:.2em;text-transform:uppercase;
+    color:var(--red);font-weight:600;margin-bottom:.35rem}
+  .original .otext{font-family:"Newsreader",serif;font-size:1.08rem;line-height:1.5;
+    color:var(--ink);white-space:pre-wrap}
+
   .pair{padding:1rem 0;border-bottom:1px dashed var(--rule);}
   .pair:last-child{border-bottom:none;padding-bottom:.2rem}
   .pair:first-child{padding-top:.2rem}
@@ -242,9 +251,15 @@ Liverpool have completed the signing of the midfielder on a five-year deal. The 
 
 <script>
 // ===== CẤU HÌNH — sửa 1 dòng sau khi deploy Worker =====
-const WORKER_URL = "https://x-translate-proxy.vercel.app/api/translate";
+const WORKER_URL = "https://my-x-news.thinhlt1069-xnews.workers.dev";
 // digest.json do GitHub Actions tạo, nằm cùng thư mục với trang này:
 const DIGEST_URL = "./digest.json";
+
+// Gộp nhiều tweet vào MỘT yêu cầu để giảm số lần gọi (tránh lỗi 429).
+const BATCH_SIZE = 5;           // số tweet mỗi yêu cầu
+const BATCH_DELAY_MS = 1500;    // nghỉ nhẹ giữa các batch
+
+function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
 
 const SAMPLE = `@SkySportsNews | 29-05-2026 10:30
 Liverpool have completed the signing of the highly-rated midfielder on a five-year deal. The club have confirmed the fee remains undisclosed.
@@ -348,18 +363,19 @@ function parseBlocks(raw){
   }).filter(b => b.text);
 }
 
-async function translateBlock(text){
+async function translateBatch(texts){
   const res = await fetch(WORKER_URL, {
     method:"POST",
     headers:{ "Content-Type":"application/json" },
-    body: JSON.stringify({ text })
+    body: JSON.stringify({ tweets: texts })
   });
   if(!res.ok){
     let msg = "mã " + res.status;
     try{ const e = await res.json(); if(e.error) msg = e.error; }catch{}
     throw new Error(msg);
   }
-  return await res.json();
+  const data = await res.json();
+  return data.tweets || [];   // mảng kết quả, cùng thứ tự với texts
 }
 
 function esc(s){ return (s||"").replace(/[&<>]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
@@ -373,7 +389,10 @@ function renderClipping(block, parsed){
   head += `<span class="src-badge">X.com</span></div>`;
 
   let body = `<div class="clip-body">`;
-  parsed.sentences.forEach((s,i) => {
+  // Bản gốc đầy đủ tiếng Anh của cả tweet, hiện trước
+  body += `<div class="original"><div class="olabel">Nguyên văn</div>`
+        + `<div class="otext">${esc(block.text)}</div></div>`;
+  (parsed.sentences || []).forEach((s,i) => {
     body += `<div class="pair">`;
     body += `<div class="en"><span class="num">${i+1}</span>${esc(s.en)}</div>`;
     body += `<div class="vi">${esc(s.vi)}</div>`;
@@ -413,15 +432,25 @@ async function run(){
   out.innerHTML = "";
   let done = 0;
 
-  for(const block of blocks){
-    status.innerHTML = `<span class="spin"></span>Đang dịch ${done+1}/${blocks.length}...`;
+  // Chia các bài thành từng batch, mỗi batch gửi 1 yêu cầu
+  for(let start = 0; start < blocks.length; start += BATCH_SIZE){
+    const batch = blocks.slice(start, start + BATCH_SIZE);
+    if(start > 0) await sleep(BATCH_DELAY_MS);
+    status.innerHTML = `<span class="spin"></span>Đang dịch ${done+1}-${done+batch.length}/${blocks.length}...`;
     try{
-      const parsed = await translateBlock(block.text);
-      out.appendChild(renderClipping(block, parsed));
+      const results = await translateBatch(batch.map(b => b.text));
+      batch.forEach((block, i) => {
+        const parsed = results[i] || { sentences: [] };
+        if(parsed.sentences && parsed.sentences.length){
+          out.appendChild(renderClipping(block, parsed));
+        }else{
+          out.appendChild(renderError(block, "không có kết quả dịch cho bài này"));
+        }
+      });
     }catch(e){
-      out.appendChild(renderError(block, e.message));
+      batch.forEach(block => out.appendChild(renderError(block, e.message)));
     }
-    done++;
+    done += batch.length;
   }
   status.textContent = `Xong ${done}/${blocks.length} bài.`;
   goBtn.disabled = false;
