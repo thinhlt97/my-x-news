@@ -8,12 +8,12 @@ Tùy chọn --translate sẽ gọi Claude API dịch + giải thích từ vựng
 
 Cách chạy:
     export TWITTERAPI_KEY="xxx"          # khóa của twitterapi.io
-    export GEMINI_API_KEY="AIza..."      # chỉ cần khi dùng --translate (lấy free tại aistudio.google.com/apikey)
+    export ANTHROPIC_API_KEY="sk-ant..." # chỉ cần khi dùng --translate
     python fetch_digest.py               # chỉ lấy tin -> digest.txt
     python fetch_digest.py --translate   # lấy tin + dịch -> digest.md
 
 Cài đặt:
-    pip install requests
+    pip install requests anthropic
 """
 
 import os
@@ -163,93 +163,29 @@ Với đoạn tweet được cho, CHỈ trả về JSON hợp lệ (không markd
 Tách tweet thành từng câu, giữ nguyên văn tiếng Anh. Chỉ xuất JSON."""
 
 
-# Model Gemini miễn phí; muốn nhanh/rẻ hơn đổi sang "gemini-2.5-flash-lite".
-GEMINI_MODEL = "gemini-2.5-flash"
-
-# Ép Gemini trả về đúng cấu trúc JSON (giống proxy translate.js).
-GEMINI_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "sentences": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "en": {"type": "string"},
-                    "vi": {"type": "string"},
-                    "vocab": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "word": {"type": "string"},
-                                "pos": {"type": "string"},
-                                "meaning_vi": {"type": "string"},
-                                "note": {"type": "string"},
-                            },
-                            "required": ["word", "meaning_vi"],
-                        },
-                    },
-                },
-                "required": ["en", "vi", "vocab"],
-            },
-        }
-    },
-    "required": ["sentences"],
-}
-
-
-def translate_block(api_key: str, text: str) -> dict:
-    """Gọi Gemini dịch 1 đoạn, trả về dict {"sentences":[...]}."""
-    url = (
-        "https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{GEMINI_MODEL}:generateContent"
+def translate_block(client, text: str) -> dict:
+    msg = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=1500,
+        system=SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": text}],
     )
-    headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
-    payload = {
-        "system_instruction": {"parts": [{"text": SYSTEM_PROMPT}]},
-        "contents": [{"role": "user", "parts": [{"text": text}]}],
-        "generationConfig": {
-            "temperature": 0.3,
-            "maxOutputTokens": 2048,
-            "responseMimeType": "application/json",
-            "responseSchema": GEMINI_SCHEMA,
-        },
-    }
-
-    # Thử lại khi gặp 429 (quá nhiều request) hoặc 503 (quá tải): chờ lâu dần.
-    resp = None
-    for attempt in range(MAX_RETRIES):
-        resp = requests.post(url, headers=headers, json=payload, timeout=60)
-        if resp.status_code not in (429, 503):
-            break
-        wait = DELAY_BETWEEN * (2 ** attempt)
-        print(f"    Gemini bị {resp.status_code}, chờ {wait:.0f}s rồi thử lại...", file=sys.stderr)
-        time.sleep(wait)
-    resp.raise_for_status()
-
-    data = resp.json()
-    parts = (data.get("candidates") or [{}])[0].get("content", {}).get("parts", [])
-    raw = "".join(p.get("text", "") for p in parts)
+    raw = "".join(b.text for b in msg.content if b.type == "text")
     raw = raw.replace("```json", "").replace("```", "").strip()
-    if not raw:
-        reason = (data.get("candidates") or [{}])[0].get("finishReason", "không rõ")
-        raise RuntimeError(f"Gemini trả về rỗng (finishReason: {reason})")
     return json.loads(raw)
 
 
-def render_markdown(grouped: dict[str, list[dict]], api_key: str) -> str:
+def render_markdown(grouped: dict[str, list[dict]], client) -> str:
     today = datetime.now().strftime("%d-%m-%Y")
     md = [f"# Bản tin bóng đá — Học tiếng Anh ({today})\n"]
     for handle, tweets in grouped.items():
         for tw in tweets:
             md.append(f"\n## @{handle}  ·  {tw['created_at']}\n")
             try:
-                parsed = translate_block(api_key, tw["text"])
+                parsed = translate_block(client, tw["text"])
             except Exception as e:
                 md.append(f"> _Không dịch được: {e}_\n")
                 continue
-            time.sleep(1.5)  # giãn nhịp nhẹ để không vượt giới hạn ~10 request/phút của gói free
             for i, s in enumerate(parsed.get("sentences", []), 1):
                 md.append(f"**{i}. {s['en']}**")
                 md.append(f"> {s['vi']}")
@@ -305,13 +241,14 @@ def main():
         json.dump(digest_json, f, ensure_ascii=False, indent=2)
     print(f"Đã ghi digest.json — web app sẽ tự đọc file này.", file=sys.stderr)
 
-    # Tùy chọn dịch sẵn (dùng Gemini, gói miễn phí)
+    # Tùy chọn dịch sẵn
     if args.translate:
-        api_key = os.environ.get("GEMINI_API_KEY", "")
-        if not api_key:
-            print("Cần đặt GEMINI_API_KEY (lấy free tại https://aistudio.google.com/apikey)", file=sys.stderr)
-            sys.exit(1)
-        md = render_markdown(grouped, api_key)
+        try:
+            from anthropic import Anthropic
+        except ImportError:
+            print("Cần: pip install anthropic", file=sys.stderr); sys.exit(1)
+        client = Anthropic()  # đọc ANTHROPIC_API_KEY từ môi trường
+        md = render_markdown(grouped, client)
         with open("digest.md", "w", encoding="utf-8") as f:
             f.write(md)
         print("Đã ghi digest.md (đã dịch + giải nghĩa).", file=sys.stderr)
