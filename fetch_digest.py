@@ -35,6 +35,10 @@ ACCOUNTS = [
     "_pauljoyce",
     "FabrizioRomano",
     "BBCSport",
+    "nytimes",
+    "FortuneMagazine",
+    "WSJ",
+    "DKingTelegraph",
 ]
 
 HOURS_BACK = 24          # khoảng thời gian quan tâm
