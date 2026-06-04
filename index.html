@@ -256,8 +256,8 @@ const WORKER_URL = "https://x-translate-proxy.vercel.app/api/translate";
 const DIGEST_URL = "./digest.json";
 
 // Gộp nhiều tweet vào MỘT yêu cầu để giảm số lần gọi (tránh lỗi 429).
-const BATCH_SIZE = 5;           // số tweet mỗi yêu cầu
-const BATCH_DELAY_MS = 1500;    // nghỉ nhẹ giữa các batch
+const BATCH_SIZE = 4;           // số tweet mỗi yêu cầu (nhỏ để đỡ đụng trần token/phút)
+const BATCH_DELAY_MS = 2500;    // nghỉ giữa các batch
 
 function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
 
@@ -364,18 +364,31 @@ function parseBlocks(raw){
 }
 
 async function translateBatch(texts){
-  const res = await fetch(WORKER_URL, {
-    method:"POST",
-    headers:{ "Content-Type":"application/json" },
-    body: JSON.stringify({ tweets: texts })
-  });
-  if(!res.ok){
+  for(let attempt = 0; attempt < 4; attempt++){
+    const res = await fetch(WORKER_URL, {
+      method:"POST",
+      headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({ tweets: texts })
+    });
+    if(res.ok){
+      const data = await res.json();
+      return data.tweets || [];   // mảng kết quả, cùng thứ tự với texts
+    }
+
     let msg = "mã " + res.status;
     try{ const e = await res.json(); if(e.error) msg = e.error; }catch{}
+
+    // Chạm giới hạn token/phút (429): chờ rồi thử lại (TPM hồi lại sau mỗi phút)
+    const isRate = msg.includes("429") || msg.toLowerCase().includes("rate_limit");
+    if(isRate && attempt < 3){
+      const wait = 14000;   // chờ ~14s cho hạn mức hồi lại
+      status.innerHTML = `<span class="spin"></span>Đạt giới hạn token/phút, chờ ${Math.round(wait/1000)}s rồi thử lại...`;
+      await sleep(wait);
+      continue;
+    }
     throw new Error(msg);
   }
-  const data = await res.json();
-  return data.tweets || [];   // mảng kết quả, cùng thứ tự với texts
+  return [];
 }
 
 function esc(s){ return (s||"").replace(/[&<>]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
