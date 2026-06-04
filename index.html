@@ -348,6 +348,8 @@ function parseBlocks(raw){
   }).filter(b => b.text);
 }
 
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
 async function translateBlock(text){
   const res = await fetch(WORKER_URL, {
     method:"POST",
@@ -414,9 +416,22 @@ async function run(){
   let done = 0;
 
   for(const block of blocks){
+    if(done > 0) await sleep(1200);   // giãn nhịp nhẹ để không vượt giới hạn ~10 request/phút (gói free)
     status.innerHTML = `<span class="spin"></span>Đang dịch ${done+1}/${blocks.length}...`;
     try{
-      const parsed = await translateBlock(block.text);
+      let parsed;
+      try{
+        parsed = await translateBlock(block.text);
+      }catch(e){
+        // Nếu bị giới hạn tốc độ (429): chờ rồi thử lại đúng 1 lần.
+        if(String(e.message).includes("429")){
+          status.innerHTML = `<span class="spin"></span>Đang chờ hết giới hạn rồi thử lại ${done+1}/${blocks.length}...`;
+          await sleep(7000);
+          parsed = await translateBlock(block.text);
+        }else{
+          throw e;
+        }
+      }
       out.appendChild(renderClipping(block, parsed));
     }catch(e){
       out.appendChild(renderError(block, e.message));
