@@ -196,7 +196,9 @@
 <script>
 // ===== CẤU HÌNH — sửa nếu URL proxy của bạn khác =====
 const WORKER_URL = "https://x-translate-proxy.vercel.app/api/translate";
-const DIGEST_URL = "./digest.json";
+// digest.json không còn dùng — giờ kéo tin theo yêu cầu qua proxy.
+// Danh sách kênh: sửa ở đây để thêm/bớt nguồn (lấy phần sau x.com/, không có @).
+const SOURCES = ["David_Ornstein","JamesPearceLFC","EBL2017","_pauljoyce","FabrizioRomano","BBCSport","nytimes","FortuneMagazine","WSJ","DKingTelegraph"];
 // Worker lưu từ vựng dùng chung giữa các thiết bị (sửa thành URL vocab-worker của bạn):
 const VOCAB_URL = "https://vocab-worker.thinhlt1069-xnews.workers.dev";
 const VKEY = "touchline_vocab";       // lưu tạm trong trình duyệt
@@ -302,58 +304,55 @@ function esc(s){ return (s||"").replace(/[&<>]/g, c=>({"&":"&amp;","<":"&lt;",">
 
 /* ---------- TAB TIN TỨC ---------- */
 const status = $("#status");
-let digestCache = null;
 const selected = new Set();
 
 $("#selAll").addEventListener("click", () => setAll(true));
 $("#selNone").addEventListener("click", () => setAll(false));
 $("#load").addEventListener("click", loadSelected);
 
-async function ensureDigest(){
-  if(digestCache) return digestCache;
-  const res = await fetch(DIGEST_URL, { cache:"no-store" });
-  if(!res.ok) throw new Error("HTTP " + res.status);
-  digestCache = await res.json();
-  return digestCache;
-}
 function setAll(on){
   document.querySelectorAll("#chips .chip").forEach(c => {
     c.classList.toggle("on", on);
     if(on) selected.add(c.dataset.handle); else selected.delete(c.dataset.handle);
   });
 }
-async function buildChips(){
-  try{
-    const data = await ensureDigest();
-    const chips = $("#chips"); chips.innerHTML = "";
-    const accts = (data.accounts||[]).filter(a => (a.tweets||[]).length);
-    if(!accts.length){ status.textContent = "Hôm nay chưa có tin trong digest.json."; return; }
-    accts.forEach(acc => {
-      const chip = document.createElement("div");
-      chip.className = "chip on"; chip.dataset.handle = acc.handle;
-      chip.innerHTML = `<span class="tick">✓</span>@${acc.handle}<span class="cnt">${acc.tweets.length}</span>`;
-      chip.addEventListener("click", () => {
-        const on = chip.classList.toggle("on");
-        if(on) selected.add(acc.handle); else selected.delete(acc.handle);
-      });
-      chips.appendChild(chip); selected.add(acc.handle);
+function buildChips(){
+  const chips = $("#chips"); chips.innerHTML = "";
+  SOURCES.forEach(h => {
+    const chip = document.createElement("div");
+    chip.className = "chip on"; chip.dataset.handle = h;
+    chip.innerHTML = `<span class="tick">✓</span>@${h}`;
+    chip.addEventListener("click", () => {
+      const on = chip.classList.toggle("on");
+      if(on) selected.add(h); else selected.delete(h);
     });
-    const total = accts.reduce((n,a)=>n+a.tweets.length,0);
-    status.textContent = `Có ${total} bài từ ${accts.length} nguồn.`;
-  }catch(e){ status.textContent = "Chưa tải được nguồn: " + e.message; }
+    chips.appendChild(chip); selected.add(h);
+  });
+  status.textContent = "Chọn nguồn rồi bấm “Tải tin đã chọn”.";
 }
-function loadSelected(){
-  if(!digestCache){ buildChips(); return; }
+// Kéo tin THEO YÊU CẦU: chỉ kéo các nguồn đang chọn, lần lượt từng nguồn.
+async function loadSelected(){
   if(!selected.size){ status.textContent = "Bạn chưa chọn nguồn nào."; return; }
   const cards = $("#cards"); cards.innerHTML = "";
-  let n = 0;
-  for(const acc of (digestCache.accounts||[])){
-    if(!selected.has(acc.handle)) continue;
-    for(const tw of (acc.tweets||[])){
-      cards.appendChild(makeCard(acc.handle, tw.created_at||"", tw.text)); n++;
+  const handles = [...selected];
+  let total = 0;
+  $("#load").disabled = true;
+  for(let i = 0; i < handles.length; i++){
+    const h = handles[i];
+    if(i > 0) await sleep(1500);   // nghỉ giữa các nguồn để tránh 429 twitterapi
+    status.innerHTML = `<span class="spin"></span>Đang kéo @${h} (${i+1}/${handles.length})...`;
+    try{
+      const data = await callProxy({ source: h }, status);
+      (data.tweets||[]).forEach(tw => { cards.appendChild(makeCard(h, tw.created_at||"", tw.text)); total++; });
+    }catch(e){
+      const note = document.createElement("div");
+      note.className = "err"; note.style.margin = "0 0 1rem";
+      note.textContent = `Không kéo được @${h}: ${e.message}`;
+      cards.appendChild(note);
     }
   }
-  status.textContent = n ? `Đã hiện ${n} tin. Bấm “Dịch & Học” trên tin muốn học.` : "Nguồn đã chọn không có bài.";
+  $("#load").disabled = false;
+  status.textContent = total ? `Đã kéo ${total} tin. Bấm “Dịch & Học” trên tin muốn học.` : "Các nguồn đã chọn không có tin mới trong 24h.";
 }
 function makeCard(handle, time, text){
   const card = document.createElement("article");
