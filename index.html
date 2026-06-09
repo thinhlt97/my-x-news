@@ -378,11 +378,15 @@ async function translateBatch(texts){
     let msg = "mã " + res.status;
     try{ const e = await res.json(); if(e.error) msg = e.error; }catch{}
 
-    // Chạm giới hạn token/phút (429): chờ rồi thử lại (TPM hồi lại sau mỗi phút)
-    const isRate = msg.includes("429") || msg.toLowerCase().includes("rate_limit");
-    if(isRate && attempt < 3){
-      const wait = 14000;   // chờ ~14s cho hạn mức hồi lại
-      status.innerHTML = `<span class="spin"></span>Đạt giới hạn token/phút, chờ ${Math.round(wait/1000)}s rồi thử lại...`;
+    // Lỗi tạm thời: 429 (giới hạn tốc độ) hoặc 503/502/500 (máy chủ bận/quá tải).
+    // Tự chờ rồi thử lại — phần lớn các lỗi này tự hết sau ít giây.
+    const isRate = msg.includes("429") || /rate_limit/i.test(msg);
+    const isBusy = msg.includes("503") || msg.includes("502") || msg.includes("500")
+                 || /unavailable|overload|high demand/i.test(msg);
+    if((isRate || isBusy) && attempt < 3){
+      const wait = isRate ? 14000 : 5000 * (attempt + 1);   // 429: chờ ~14s; bận: 5s,10s,15s
+      const why = isRate ? "Đạt giới hạn token/phút" : "Máy chủ đang bận";
+      status.innerHTML = `<span class="spin"></span>${why}, chờ ${Math.round(wait/1000)}s rồi thử lại...`;
       await sleep(wait);
       continue;
     }
