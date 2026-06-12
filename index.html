@@ -236,6 +236,24 @@ function setCachedTweets(handle, tweets){
   try{ localStorage.setItem(NEWSCACHE, JSON.stringify(c)); }catch(e){}
 }
 
+/* ---------- Cache bản dịch theo từng tweet (tiết kiệm credit LLM) ----------
+   Lưu kết quả dịch theo nội dung tweet. Mở lại tin đã dịch trong ngày sẽ hiện
+   ngay, không gọi LLM lại. Dọn theo ngày giống cache tin. */
+const TRCACHE = "touchline_tr_cache";
+function hashText(s){ let h = 5381; for(let i=0;i<s.length;i++) h = ((h<<5)+h+s.charCodeAt(i))|0; return "t"+(h>>>0).toString(36); }
+function readTrCache(){ try{ return JSON.parse(localStorage.getItem(TRCACHE)) || {}; }catch(e){ return {}; } }
+// Trả về { parsed, provider } đã cache HÔM NAY cho tweet, hoặc null.
+function getCachedTr(text){
+  const e = readTrCache()[hashText(text)];
+  return (e && e.date === todayStr()) ? e : null;
+}
+function setCachedTr(text, parsed, provider){
+  const c = readTrCache(), today = todayStr();
+  for(const k of Object.keys(c)){ if(c[k].date !== today) delete c[k]; }
+  c[hashText(text)] = { date: today, parsed, provider };
+  try{ localStorage.setItem(TRCACHE, JSON.stringify(c)); }catch(e){}
+}
+
 /* ---------- Từ vựng: lưu trên server theo mã cá nhân (đồng bộ nhiều thiết bị) ---------- */
 let vocabCache = [];
 let personalCode = localStorage.getItem(CODEKEY) || "";
@@ -415,6 +433,13 @@ function makeCard(handle, time, text){
   const cstatus = card.querySelector(".cstatus");
   const result = card.querySelector(".card-result");
   const btns = card.querySelectorAll(".btn-translate");
+  // Nếu tweet này đã dịch trong ngày → hiện ngay từ bộ nhớ, không gọi LLM.
+  const cachedTr = getCachedTr(text);
+  if(cachedTr){
+    renderSentences(result, cachedTr.parsed);
+    result.classList.add("show");
+    cstatus.textContent = `Bản dịch đã lưu (${cachedTr.provider}) — bấm nút dịch để dịch lại.`;
+  }
   btns.forEach(btn => btn.addEventListener("click", async () => {
     const provider = btn.dataset.p;
     btns.forEach(b => b.disabled = true);
@@ -422,6 +447,7 @@ function makeCard(handle, time, text){
     try{
       const data = await callProxy({ tweets: [text], provider }, cstatus);
       const parsed = (data.tweets && data.tweets[0]) || { sentences: [] };
+      setCachedTr(text, parsed, provider);
       renderSentences(result, parsed);
       result.classList.add("show");
       cstatus.textContent = `Đã dịch bằng ${provider} — có thể bấm nút kia để dịch lại.`;
