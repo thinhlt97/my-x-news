@@ -53,6 +53,9 @@
   button{font-family:"Be Vietnam Pro";cursor:pointer;border:none;font-weight:600;transition:transform .08s,background .15s}
   .btn-go{background:var(--ink);color:var(--paper);padding:.7rem 1.4rem;font-size:.92rem;border-radius:2px}
   .btn-go:hover{background:var(--red-deep)}.btn-go:active{transform:translateY(1px)}
+  #reload{background:transparent;color:var(--ink);border:1px solid var(--ink);padding:.55rem 1rem;font-size:.85rem;border-radius:2px;cursor:pointer}
+  #reload:hover{background:var(--ink);color:var(--paper)}#reload:active{transform:translateY(1px)}
+  #reload:disabled{opacity:.45;cursor:default}
   .btn-go:disabled{opacity:.45;cursor:not-allowed}
   .btn-ghost{background:transparent;color:var(--ink-soft);padding:.7rem .9rem;font-size:.84rem;
     text-decoration:underline;text-underline-offset:3px}
@@ -159,9 +162,10 @@
       <div class="chips" id="chips"></div>
       <div style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
         <button class="btn-go" id="load">Tải tin đã chọn</button>
+        <button class="mini" id="reload" title="Bỏ qua bộ nhớ, gọi API kéo tin mới nhất">↻ Kéo mới</button>
         <span id="status"></span>
       </div>
-      <p class="hint">Mỗi tin hiện thành một ô. Bấm “Dịch &amp; Học” trên ô nào thì chỉ dịch ô đó — tiết kiệm.</p>
+      <p class="hint">Mỗi tin hiện thành một ô. Bấm “Dịch &amp; Học” trên ô nào thì chỉ dịch ô đó — tiết kiệm. Tin đã kéo trong ngày được lưu lại; mở lại sẽ hiện ngay từ bộ nhớ, không tốn credit. Muốn cập nhật tin mới thì bấm “↻ Kéo mới”.</p>
     </div>
     <div id="cards"></div>
   </section>
@@ -209,6 +213,28 @@ const CODEKEY = "touchline_code";     // nhớ mã cá nhân trên thiết bị 
 
 const $ = s => document.querySelector(s);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+/* ---------- Cache tin theo ngày (tiết kiệm credit twitterapi) ----------
+   Lưu tweet đã kéo của mỗi kênh vào localStorage kèm ngày. Trong cùng ngày,
+   mở lại kênh đó sẽ load từ bộ nhớ, KHÔNG gọi API. Bấm "Kéo mới" để làm tươi. */
+const NEWSCACHE = "touchline_news_cache";
+function todayStr(){
+  const d = new Date();
+  return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+}
+function readNewsCache(){ try{ return JSON.parse(localStorage.getItem(NEWSCACHE)) || {}; }catch(e){ return {}; } }
+// Trả về mảng tweet đã cache HÔM NAY của 1 kênh, hoặc null nếu không có / khác ngày.
+function getCachedTweets(handle){
+  const e = readNewsCache()[handle];
+  return (e && e.date === todayStr()) ? (e.tweets || []) : null;
+}
+// Lưu tweet của 1 kênh + dọn các mục của ngày cũ để localStorage không phình.
+function setCachedTweets(handle, tweets){
+  const c = readNewsCache(), today = todayStr();
+  for(const k of Object.keys(c)){ if(c[k].date !== today) delete c[k]; }
+  c[handle] = { date: today, tweets };
+  try{ localStorage.setItem(NEWSCACHE, JSON.stringify(c)); }catch(e){}
+}
 
 /* ---------- Từ vựng: lưu trên server theo mã cá nhân (đồng bộ nhiều thiết bị) ---------- */
 let vocabCache = [];
@@ -311,7 +337,8 @@ const selected = new Set();
 
 $("#selAll").addEventListener("click", () => setAll(true));
 $("#selNone").addEventListener("click", () => setAll(false));
-$("#load").addEventListener("click", loadSelected);
+$("#load").addEventListener("click", () => loadSelected(false));
+$("#reload").addEventListener("click", () => loadSelected(true));
 
 function setAll(on){
   document.querySelectorAll("#chips .chip").forEach(c => {
@@ -334,19 +361,31 @@ function buildChips(){
   status.textContent = "Chọn nguồn rồi bấm “Tải tin đã chọn”.";
 }
 // Kéo tin THEO YÊU CẦU: chỉ kéo các nguồn đang chọn, lần lượt từng nguồn.
-async function loadSelected(){
+// force=true: bỏ qua cache, gọi API kéo tin mới nhất cho mọi kênh đang chọn.
+async function loadSelected(force){
   if(!selected.size){ status.textContent = "Bạn chưa chọn nguồn nào."; return; }
   const cards = $("#cards"); cards.innerHTML = "";
   const handles = [...selected];
-  let total = 0;
-  $("#load").disabled = true;
+  let total = 0, fetched = 0, cachedSrc = 0, firstApi = true;
+  $("#load").disabled = true; $("#reload").disabled = true;
   for(let i = 0; i < handles.length; i++){
     const h = handles[i];
-    if(i > 0) await sleep(1500);   // nghỉ giữa các nguồn để tránh 429 twitterapi
+    const cache = force ? null : getCachedTweets(h);
+    if(cache){
+      status.innerHTML = `Mở @${h} từ bộ nhớ (${i+1}/${handles.length})...`;
+      cache.forEach(tw => { cards.appendChild(makeCard(h, tw.created_at||"", tw.text)); total++; });
+      cachedSrc++;
+      continue;
+    }
+    if(!firstApi) await sleep(1500);   // chỉ nghỉ giữa các lần GỌI API thật (tránh 429 twitterapi)
+    firstApi = false;
     status.innerHTML = `<span class="spin"></span>Đang kéo @${h} (${i+1}/${handles.length})...`;
     try{
       const data = await callProxy({ source: h }, status);
-      (data.tweets||[]).forEach(tw => { cards.appendChild(makeCard(h, tw.created_at||"", tw.text)); total++; });
+      const tws = data.tweets || [];
+      setCachedTweets(h, tws);
+      tws.forEach(tw => { cards.appendChild(makeCard(h, tw.created_at||"", tw.text)); total++; });
+      fetched++;
     }catch(e){
       const note = document.createElement("div");
       note.className = "err"; note.style.margin = "0 0 1rem";
@@ -354,8 +393,12 @@ async function loadSelected(){
       cards.appendChild(note);
     }
   }
-  $("#load").disabled = false;
-  status.textContent = total ? `Đã kéo ${total} tin. Bấm “Dịch & Học” trên tin muốn học.` : "Các nguồn đã chọn không có tin mới trong 24h.";
+  $("#load").disabled = false; $("#reload").disabled = false;
+  if(!total){ status.textContent = "Các nguồn đã chọn không có tin mới trong 24h."; return; }
+  const parts = [];
+  if(fetched) parts.push(`${fetched} kênh kéo mới`);
+  if(cachedSrc) parts.push(`${cachedSrc} kênh từ bộ nhớ`);
+  status.textContent = `Đã hiển thị ${total} tin (${parts.join(", ")}). Bấm “Dịch & Học” trên tin muốn học.`;
 }
 function makeCard(handle, time, text){
   const card = document.createElement("article");
