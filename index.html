@@ -254,6 +254,37 @@ function setCachedTr(text, parsed, provider){
   try{ localStorage.setItem(TRCACHE, JSON.stringify(c)); }catch(e){}
 }
 
+/* ---------- Đồng bộ cache tin qua "mã cá nhân" (đọc lại trên thiết bị khác) ----------
+   Có nhập mã thì cache tin+dịch được lưu chung trên server (vocab-worker, kind=news),
+   nên kéo/dịch trên máy tính xong, mở điện thoại nhập cùng mã sẽ đọc lại được. */
+function mergeNewsByDate(localObj, srvObj){
+  const today = todayStr(), out = localObj || {};
+  for(const k in (srvObj||{})){
+    const s = srvObj[k];
+    if(s && s.date === today && (!out[k] || out[k].date !== today)) out[k] = s;
+  }
+  for(const k in out){ if(out[k].date !== today) delete out[k]; }
+  return out;
+}
+async function pullNewsFromServer(){
+  if(!personalCode) return;
+  try{
+    const r = await fetch(VOCAB_URL + "?code=" + encodeURIComponent(personalCode) + "&kind=news");
+    const d = await r.json();
+    const srv = d && d.news;
+    if(!srv) return;
+    localStorage.setItem(NEWSCACHE, JSON.stringify(mergeNewsByDate(readNewsCache(), srv.newsCache)));
+    localStorage.setItem(TRCACHE,  JSON.stringify(mergeNewsByDate(readTrCache(),  srv.trCache)));
+  }catch(e){}
+}
+function pushNewsToServer(){
+  if(!personalCode) return;
+  fetch(VOCAB_URL + "?code=" + encodeURIComponent(personalCode) + "&kind=news", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ news: { newsCache: readNewsCache(), trCache: readTrCache() } })
+  }).catch(()=>{});
+}
+
 /* ---------- Từ vựng: lưu trên server theo mã cá nhân (đồng bộ nhiều thiết bị) ---------- */
 let vocabCache = [];
 let personalCode = localStorage.getItem(CODEKEY) || "";
@@ -386,6 +417,10 @@ async function loadSelected(force){
   const handles = [...selected];
   let total = 0, fetched = 0, cachedSrc = 0, firstApi = true;
   $("#load").disabled = true; $("#reload").disabled = true;
+  if(personalCode){
+    status.innerHTML = `<span class="spin"></span>Đang đồng bộ tin đã lưu...`;
+    await pullNewsFromServer();   // lấy tin/dịch đã lưu từ thiết bị khác (cùng mã)
+  }
   for(let i = 0; i < handles.length; i++){
     const h = handles[i];
     const cache = force ? null : getCachedTweets(h);
@@ -411,6 +446,7 @@ async function loadSelected(force){
       cards.appendChild(note);
     }
   }
+  if(fetched) pushNewsToServer();   // có kéo mới → lưu lên server để thiết bị khác đọc lại
   $("#load").disabled = false; $("#reload").disabled = false;
   if(!total){ status.textContent = "Các nguồn đã chọn không có tin mới trong 24h."; return; }
   const parts = [];
@@ -448,6 +484,7 @@ function makeCard(handle, time, text){
       const data = await callProxy({ tweets: [text], provider }, cstatus);
       const parsed = (data.tweets && data.tweets[0]) || { sentences: [] };
       setCachedTr(text, parsed, provider);
+      pushNewsToServer();   // đồng bộ bản dịch lên server (nếu đã nhập mã)
       renderSentences(result, parsed);
       result.classList.add("show");
       cstatus.textContent = `Đã dịch bằng ${provider} — có thể bấm nút kia để dịch lại.`;
