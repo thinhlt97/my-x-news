@@ -25,13 +25,16 @@
   .mast h1 em{font-style:italic;color:var(--red-deep)}
 
   /* Tabs */
-  .tabs{display:flex;gap:.4rem;border-bottom:2px solid var(--ink);margin-bottom:1.5rem;flex-wrap:wrap}
+  .tabs{display:flex;gap:.4rem;border-bottom:2px solid var(--ink);margin-bottom:1.5rem;flex-wrap:wrap;
+    position:sticky;top:0;z-index:50;background:var(--paper);padding-top:.6rem}
   .tab{background:none;border:none;font-family:"Be Vietnam Pro";font-size:.92rem;font-weight:600;
     color:var(--ink-soft);padding:.6rem 1rem;cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-2px;
     display:flex;align-items:center;gap:.45rem}
   .tab:hover{color:var(--red)}
   .tab.active{color:var(--ink);border-bottom-color:var(--red)}
   .tab .badge{background:var(--red);color:#fff;font-size:.68rem;border-radius:999px;padding:.05rem .45rem;font-weight:700}
+  #vSelCount{font-size:.72rem;font-weight:700;letter-spacing:0;text-transform:none;color:var(--ink-faint)}
+  #vSelCount.has{color:var(--red)}
   .view{display:none}
   .view.active{display:block}
 
@@ -183,6 +186,8 @@
         <span>Từ vựng đã lưu</span>
         <span class="mini" id="vSelAll">Chọn tất cả</span>
         <span class="mini" id="vSelNone">Bỏ chọn</span>
+        <span class="mini" id="vRandom" title="Chọn ngẫu nhiên 10 từ để ôn">🎲 Ngẫu nhiên 10</span>
+        <span id="vSelCount">Đã chọn 0</span>
       </div>
       <div style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
         <button class="btn-go" id="makeQuizGemini">Tạo đề (Gemini)</button>
@@ -348,14 +353,19 @@ async function initVocab(){
   updateBadge();
 }
 
-/* ---------- Chuyển tab ---------- */
-document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => {
+/* ---------- Chuyển tab (nhớ vị trí cuộn của từng tab) ---------- */
+const scrollPos = { news: 0, vocab: 0, quiz: 0 };
+function activateTab(name){
+  const cur = document.querySelector(".tab.active");
+  if(cur){ scrollPos[cur.dataset.tab] = window.scrollY; }   // lưu vị trí tab đang rời
   document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
   document.querySelectorAll(".view").forEach(x => x.classList.remove("active"));
-  t.classList.add("active");
-  $("#view-" + t.dataset.tab).classList.add("active");
-  if(t.dataset.tab === "vocab") renderVocab();
-}));
+  document.querySelector(`.tab[data-tab="${name}"]`).classList.add("active");
+  $("#view-" + name).classList.add("active");
+  if(name === "vocab") renderVocab();
+  window.scrollTo(0, scrollPos[name] || 0);                 // về đúng chỗ đọc dở
+}
+document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => activateTab(t.dataset.tab)));
 
 /* ---------- Gọi proxy (có tự thử lại lỗi tạm thời) ---------- */
 async function callProxy(payload, statusEl){
@@ -529,8 +539,28 @@ function renderSentences(container, parsed){
 }
 
 /* ---------- TAB TỪ VỰNG ---------- */
-$("#vSelAll").addEventListener("click", () => document.querySelectorAll("#vocabList input[type=checkbox]").forEach(c=>c.checked=true));
-$("#vSelNone").addEventListener("click", () => document.querySelectorAll("#vocabList input[type=checkbox]").forEach(c=>c.checked=false));
+// Lựa chọn được giữ trong Set theo "word" nên không mất khi rời/quay lại tab.
+const vocabSelected = new Set();
+function updateVocabCount(){
+  const n = vocabSelected.size, el = $("#vSelCount");
+  el.textContent = `Đã chọn ${n}`;
+  el.classList.toggle("has", n > 0);
+}
+function setVocabSelection(words){       // đặt lại toàn bộ lựa chọn rồi vẽ lại
+  vocabSelected.clear();
+  words.forEach(w => vocabSelected.add(w));
+  renderVocab();
+}
+$("#vSelAll").addEventListener("click", () => setVocabSelection(vocabCache.map(v => v.word)));
+$("#vSelNone").addEventListener("click", () => setVocabSelection([]));
+$("#vRandom").addEventListener("click", () => {
+  if(!vocabCache.length){ $("#vstatus").textContent = "Chưa có từ nào để chọn."; return; }
+  const pool = vocabCache.map(v => v.word);
+  for(let i = pool.length - 1; i > 0; i--){ const j = Math.floor(Math.random()*(i+1)); [pool[i],pool[j]]=[pool[j],pool[i]]; }
+  const pick = pool.slice(0, Math.min(10, pool.length));
+  setVocabSelection(pick);
+  $("#vstatus").textContent = `Đã chọn ngẫu nhiên ${pick.length} từ — bấm “Tạo đề” để ôn.`;
+});
 $("#makeQuizGemini").addEventListener("click", () => makeQuiz("gemini"));
 $("#makeQuizGroq").addEventListener("click", () => makeQuiz("groq"));
 $("#codeSave").addEventListener("click", () => {
@@ -541,38 +571,40 @@ $("#codeSave").addEventListener("click", () => {
 
 function renderVocab(){
   const list = $("#vocabList"); const arr = vocabCache;
-  if(!arr.length){ list.innerHTML = `<div class="empty">Chưa có từ nào. Sang mục “Tin tức”, dịch một tin rồi bấm “＋ Lưu” ở từ vựng.</div>`; return; }
+  // bỏ khỏi lựa chọn những từ không còn trong danh sách
+  const live = new Set(arr.map(v => v.word));
+  [...vocabSelected].forEach(w => { if(!live.has(w)) vocabSelected.delete(w); });
+  if(!arr.length){ list.innerHTML = `<div class="empty">Chưa có từ nào. Sang mục “Tin tức”, dịch một tin rồi bấm “＋ Lưu” ở từ vựng.</div>`; updateVocabCount(); return; }
   list.innerHTML = "";
   arr.forEach(v => {
     const item = document.createElement("div");
     item.className = "vitem";
     item.innerHTML =
-      `<input type="checkbox" data-w="${esc(v.word)}">`
+      `<input type="checkbox" data-w="${esc(v.word)}"${vocabSelected.has(v.word)?" checked":""}>`
     + `<div class="body"><div class="top"><span class="vw">${esc(v.word)}</span>`
     + (v.ipa?`<span class="vipa">${esc(v.ipa)}</span>`:``)
     + (v.pos?`<span class="vpos">${esc(v.pos)}</span>`:``)
     + `</div><div class="vmean">${esc(v.meaning_vi)}</div></div>`
     + `<button class="del" title="Xóa">×</button>`;
+    item.querySelector("input").addEventListener("change", e => {
+      if(e.target.checked) vocabSelected.add(v.word); else vocabSelected.delete(v.word);
+      updateVocabCount();
+    });
     item.querySelector(".del").addEventListener("click", () => { vocabRemove(v.word); renderVocab(); });
     list.appendChild(item);
   });
+  updateVocabCount();
 }
 
 /* ---------- TAB ÔN TẬP ---------- */
 async function makeQuiz(provider){
-  const chosen = [];
-  document.querySelectorAll("#vocabList input[type=checkbox]:checked").forEach(c => {
-    const v = vocabCache.find(x => x.word === c.dataset.w);
-    if(v) chosen.push(v);
-  });
+  const chosen = vocabCache.filter(v => vocabSelected.has(v.word));
   const vstatus = $("#vstatus");
   if(!chosen.length){ vstatus.textContent = "Hãy tích chọn ít nhất một từ."; return; }
   vstatus.innerHTML = `<span class="spin"></span>Đang tạo 10 câu hỏi (${provider})...`;
-  // chuyển sang tab ôn tập
-  document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));
-  document.querySelectorAll(".view").forEach(x=>x.classList.remove("active"));
-  document.querySelector('.tab[data-tab="quiz"]').classList.add("active");
-  $("#view-quiz").classList.add("active");
+  // chuyển sang tab ôn tập (đề mới → về đầu trang)
+  scrollPos.quiz = 0;
+  activateTab("quiz");
   const area = $("#quizArea");
   area.innerHTML = `<div class="empty"><span class="spin"></span> Đang tạo đề từ ${chosen.length} từ (${provider})...</div>`;
   try{
@@ -591,12 +623,7 @@ function renderQuiz(questions){
   let answered = 0, score = 0;
   area.innerHTML = `<div class="qbar"><span id="qscore">Đúng 0/${questions.length}</span>`
     + `<button class="btn-ghost" id="qredo">Làm đề khác</button></div><div id="qlist"></div>`;
-  $("#qredo").addEventListener("click", () => {
-    document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));
-    document.querySelectorAll(".view").forEach(x=>x.classList.remove("active"));
-    document.querySelector('.tab[data-tab="vocab"]').classList.add("active");
-    $("#view-vocab").classList.add("active"); renderVocab();
-  });
+  $("#qredo").addEventListener("click", () => activateTab("vocab"));
   const qlist = $("#qlist");
   questions.forEach((q,qi) => {
     const card = document.createElement("div");
