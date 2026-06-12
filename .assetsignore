@@ -1,0 +1,19 @@
+# Những file/thư mục KHÔNG phục vụ như static asset trên Cloudflare.
+# Cloudflare serve cả thư mục "." (xem wrangler.jsonc), nên cần loại rác ở đây.
+# Cú pháp giống .gitignore. Chỉ index.html cần được phục vụ.
+
+.git
+.github
+.claude
+node_modules
+.wrangler
+
+# tài liệu & cấu hình, không phải asset
+*.md
+.gitignore
+.assetsignore
+wrangler.jsonc
+
+# biến môi trường (phòng hờ — không bao giờ public)
+.env*
+.dev.vars*
