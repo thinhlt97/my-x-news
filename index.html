@@ -58,6 +58,10 @@
   .add-src input{flex:1;min-width:14rem;padding:.45rem .7rem;border:1px solid var(--rule-strong);
     border-radius:8px;font-family:"Be Vietnam Pro";font-size:.9rem;background:#fbf8f0;color:var(--ink)}
   .add-src input:focus{outline:none;border-color:var(--red)}
+  .win-wrap{font-size:.85rem;color:var(--ink-soft);display:inline-flex;align-items:center;gap:.35rem}
+  .win-wrap select{font-family:"Be Vietnam Pro";font-size:.85rem;padding:.25rem .4rem;border:1px solid var(--rule-strong);
+    border-radius:6px;background:#fbf8f0;color:var(--ink);cursor:pointer}
+  .win-wrap select:focus{outline:none;border-color:var(--red)}
 
   button{font-family:"Be Vietnam Pro";cursor:pointer;border:none;font-weight:600;transition:transform .08s,background .15s}
   .btn-go{background:var(--ink);color:var(--paper);padding:.7rem 1.4rem;font-size:.92rem;border-radius:2px}
@@ -167,6 +171,7 @@
         <span>Chọn nguồn để tải</span>
         <span class="mini" id="selAll">Chọn tất cả</span>
         <span class="mini" id="selNone">Bỏ chọn</span>
+        <span class="mini" id="restoreSrc" title="Hiện lại các nguồn gốc đã ẩn" style="display:none">↺ Hiện nguồn đã ẩn</span>
       </div>
       <div class="chips" id="chips"></div>
       <div class="add-src">
@@ -177,6 +182,13 @@
       <div style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
         <button class="btn-go" id="load">Tải tin đã chọn</button>
         <button class="mini" id="reload" title="Bỏ qua bộ nhớ, gọi API kéo tin mới nhất">↻ Kéo mới</button>
+        <label class="win-wrap">Tin trong
+          <select id="winSel" title="Chỉ hiện tin trong khoảng thời gian gần nhất">
+            <option value="6">6 giờ</option>
+            <option value="12">12 giờ</option>
+            <option value="24">24 giờ</option>
+          </select>
+          gần nhất</label>
         <span id="status"></span>
       </div>
       <p class="hint">Mỗi tin hiện thành một ô. Bấm “Dịch &amp; Học” trên ô nào thì chỉ dịch ô đó — tiết kiệm. Tin đã kéo trong ngày được lưu lại; mở lại sẽ hiện ngay từ bộ nhớ, không tốn credit. Muốn cập nhật tin mới thì bấm “↻ Kéo mới”.</p>
@@ -301,20 +313,27 @@ function pushNewsToServer(){
   }).catch(()=>{});
 }
 
-/* ---------- Đồng bộ danh sách NGUỒN tự thêm qua mã cá nhân (lưu vĩnh viễn) ---------- */
+/* ---------- Đồng bộ danh sách NGUỒN (tự thêm + nguồn gốc đã ẩn) qua mã cá nhân ---------- */
+// Chuẩn hóa dữ liệu server: chấp nhận mảng cũ (chỉ custom) hoặc object {custom,hidden}.
+function normalizeSources(s){
+  if(Array.isArray(s)) return { custom: s, hidden: [] };
+  if(s && typeof s === "object") return { custom: Array.isArray(s.custom) ? s.custom : [], hidden: Array.isArray(s.hidden) ? s.hidden : [] };
+  return null;
+}
 async function pullSourcesFromServer(){
   if(!personalCode) return;
   try{
     const r = await fetch(VOCAB_URL + "?code=" + encodeURIComponent(personalCode) + "&kind=sources");
     const d = await r.json();
-    if(Array.isArray(d.sources)) saveCustom(d.sources);   // server là nguồn sự thật khi mở máy
+    const s = normalizeSources(d.sources);
+    if(s){ saveCustom(s.custom); saveHidden(s.hidden); }   // server là nguồn sự thật khi mở máy
   }catch(e){}
 }
 function pushSourcesToServer(){
   if(!personalCode) return;
   fetch(VOCAB_URL + "?code=" + encodeURIComponent(personalCode) + "&kind=sources", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ sources: getCustom() })
+    body: JSON.stringify({ sources: { custom: getCustom(), hidden: getHidden() } })
   }).catch(()=>{});
 }
 
@@ -358,14 +377,14 @@ async function connectCode(code){
   localMirror(); updateBadge();
   await pushVocab();
   renderVocab();
-  // Nguồn tự thêm: gộp server + local (lần đầu không mất nguồn đã thêm trên máy này) rồi đẩy lên.
+  // Nguồn (tự thêm + đã ẩn): gộp server + local (lần đầu không mất thay đổi trên máy này) rồi đẩy lên.
   try{
     const rs = await fetch(VOCAB_URL + "?code=" + encodeURIComponent(code) + "&kind=sources");
     const ds = await rs.json();
-    const srvSrc = Array.isArray(ds.sources) ? ds.sources : [];
-    const seen = new Set(), merged = [];
-    [...srvSrc, ...getCustom()].forEach(h => { const k = h.toLowerCase(); if(!seen.has(k)){ seen.add(k); merged.push(h); } });
-    saveCustom(merged); pushSourcesToServer(); buildChips();
+    const srv = normalizeSources(ds.sources) || { custom: [], hidden: [] };
+    const uni = (a, b) => { const seen = new Set(), out = []; [...a, ...b].forEach(h => { const k = h.toLowerCase(); if(!seen.has(k)){ seen.add(k); out.push(h); } }); return out; };
+    saveCustom(uni(srv.custom, getCustom())); saveHidden(uni(srv.hidden, getHidden()));
+    pushSourcesToServer(); buildChips();
   }catch(e){}
 }
 
@@ -437,6 +456,9 @@ $("#load").addEventListener("click", () => loadSelected(false));
 $("#reload").addEventListener("click", () => loadSelected(true));
 $("#addSource").addEventListener("click", addSource);
 $("#newSource").addEventListener("keydown", e => { if(e.key === "Enter"){ e.preventDefault(); addSource(); } });
+$("#restoreSrc").addEventListener("click", () => { saveHidden([]); pushSourcesToServer(); buildChips(); });
+$("#winSel").value = String(getWinHours());
+$("#winSel").addEventListener("change", e => { setWinHours(parseInt(e.target.value, 10) || 24); loadSelected(false); });
 
 function setAll(on){
   document.querySelectorAll("#chips .chip").forEach(c => {
@@ -444,10 +466,16 @@ function setAll(on){
     if(on) selected.add(c.dataset.handle); else selected.delete(c.dataset.handle);
   });
 }
-// ----- Nguồn tự thêm (lưu localStorage, đồng tồn cùng SOURCES có sẵn) -----
-const CUSTOMKEY = "touchline_custom_sources";
+// ----- Quản lý nguồn: nguồn gốc (SOURCES) + nguồn tự thêm (custom) + nguồn gốc bị ẩn (hidden) -----
+const CUSTOMKEY = "touchline_custom_sources";   // nguồn tự thêm
+const HIDDENKEY = "touchline_hidden_sources";   // nguồn gốc đã ẩn
 function getCustom(){ try{ return JSON.parse(localStorage.getItem(CUSTOMKEY)) || []; }catch(e){ return []; } }
 function saveCustom(arr){ try{ localStorage.setItem(CUSTOMKEY, JSON.stringify(arr)); }catch(e){} }
+function getHidden(){ try{ return JSON.parse(localStorage.getItem(HIDDENKEY)) || []; }catch(e){ return []; } }
+function saveHidden(arr){ try{ localStorage.setItem(HIDDENKEY, JSON.stringify(arr)); }catch(e){} }
+const lc = s => (s || "").toLowerCase();
+function isBuiltin(h){ return SOURCES.some(x => lc(x) === lc(h)); }
+function isHidden(h){ return getHidden().some(x => lc(x) === lc(h)); }
 // Lấy handle sạch từ input: chấp nhận "@handle", "handle", hoặc link x.com/twitter.com/handle.
 function parseHandle(raw){
   let s = (raw || "").trim();
@@ -455,36 +483,38 @@ function parseHandle(raw){
   if(m) s = m[1]; else s = s.replace(/^@/, "").trim();
   return s;
 }
-// Gộp nguồn có sẵn + tự thêm, loại trùng (không phân biệt hoa/thường).
+// Danh sách nguồn hiển thị = (nguồn gốc chưa ẩn) + (nguồn tự thêm), loại trùng.
 function allSources(){
+  const hid = new Set(getHidden().map(lc));
   const seen = new Set(), out = [];
-  [...SOURCES, ...getCustom()].forEach(h => { const k = h.toLowerCase(); if(!seen.has(k)){ seen.add(k); out.push(h); } });
+  [...SOURCES.filter(h => !hid.has(lc(h))), ...getCustom()].forEach(h => { const k = lc(h); if(!seen.has(k)){ seen.add(k); out.push(h); } });
   return out;
 }
-function makeChip(h, custom){
+function makeChip(h){
+  const custom = !isBuiltin(h);
   const chip = document.createElement("div");
   chip.className = "chip on"; chip.dataset.handle = h;
-  chip.innerHTML = `<span class="tick">✓</span>@${esc(h)}` + (custom ? `<span class="rm" title="Xóa nguồn này">×</span>` : "");
+  chip.innerHTML = `<span class="tick">✓</span>@${esc(h)}<span class="rm" title="${custom ? "Xóa nguồn này" : "Ẩn nguồn này"}">×</span>`;
   chip.addEventListener("click", () => {
     const on = chip.classList.toggle("on");
     if(on) selected.add(h); else selected.delete(h);
   });
-  if(custom){
-    chip.querySelector(".rm").addEventListener("click", (e) => {
-      e.stopPropagation();
-      saveCustom(getCustom().filter(x => x.toLowerCase() !== h.toLowerCase())); pushSourcesToServer();
-      selected.delete(h); chip.remove();
-    });
-  }
+  chip.querySelector(".rm").addEventListener("click", (e) => {
+    e.stopPropagation();
+    if(custom) saveCustom(getCustom().filter(x => lc(x) !== lc(h)));   // nguồn tự thêm: xóa hẳn
+    else saveHidden([...getHidden(), h]);                              // nguồn gốc: ẩn (có thể hiện lại)
+    pushSourcesToServer();
+    selected.delete(h); chip.remove(); updateRestoreLink();
+  });
   return chip;
+}
+function updateRestoreLink(){
+  const el = $("#restoreSrc"); if(el) el.style.display = getHidden().length ? "" : "none";
 }
 function buildChips(){
   const chips = $("#chips"); chips.innerHTML = ""; selected.clear();
-  const builtin = new Set(SOURCES.map(s => s.toLowerCase()));
-  allSources().forEach(h => {
-    chips.appendChild(makeChip(h, !builtin.has(h.toLowerCase())));
-    selected.add(h);
-  });
+  allSources().forEach(h => { chips.appendChild(makeChip(h)); selected.add(h); });
+  updateRestoreLink();
   status.textContent = "Chọn nguồn rồi bấm “Tải tin đã chọn”.";
 }
 function addSource(){
@@ -493,13 +523,32 @@ function addSource(){
   if(!/^[A-Za-z0-9_]{1,30}$/.test(h)){
     status.textContent = "Tên kênh không hợp lệ (chỉ chữ, số, _ ; tối đa 30 ký tự)."; return;
   }
-  if(allSources().some(x => x.toLowerCase() === h.toLowerCase())){
+  if(isBuiltin(h)){   // nguồn gốc: nếu đang ẩn thì hiện lại, không tạo bản trùng
+    if(isHidden(h)){
+      saveHidden(getHidden().filter(x => lc(x) !== lc(h))); pushSourcesToServer(); buildChips();
+      inp.value = ""; status.textContent = `Đã hiện lại @${h}.`; return;
+    }
+    status.textContent = `@${h} đã có trong danh sách.`; inp.value = ""; return;
+  }
+  if(getCustom().some(x => lc(x) === lc(h))){
     status.textContent = `@${h} đã có trong danh sách.`; inp.value = ""; return;
   }
   saveCustom([...getCustom(), h]); pushSourcesToServer();
-  $("#chips").appendChild(makeChip(h, true)); selected.add(h);
+  $("#chips").appendChild(makeChip(h)); selected.add(h);
   inp.value = ""; status.textContent = `Đã thêm @${h}. Bấm “Tải tin đã chọn” để kéo.`;
 }
+// ----- Khoảng thời gian kéo tin gần nhất (6/12/24h, mặc định 24h) -----
+const WINKEY = "touchline_window_hours";
+function getWinHours(){ const v = parseInt(localStorage.getItem(WINKEY), 10); return (v === 6 || v === 12) ? v : 24; }
+function setWinHours(v){ try{ localStorage.setItem(WINKEY, String(v)); }catch(e){} }
+// Tweet có nằm trong khoảng đang chọn không. Proxy đã giới hạn 24h sẵn nên 24h = không lọc thêm.
+function withinWin(tw){
+  const w = getWinHours();
+  if(w >= 24) return true;
+  if(typeof tw.ts !== "number") return true;   // tin cũ thiếu mốc thời gian -> vẫn hiện
+  return tw.ts >= Date.now() - w * 3600 * 1000;
+}
+
 // Kéo tin THEO YÊU CẦU: chỉ kéo các nguồn đang chọn, lần lượt từng nguồn.
 // force=true: bỏ qua cache, gọi API kéo tin mới nhất cho mọi kênh đang chọn.
 async function loadSelected(force){
@@ -517,7 +566,7 @@ async function loadSelected(force){
     const cache = force ? null : getCachedTweets(h);
     if(cache){
       status.innerHTML = `Mở @${h} từ bộ nhớ (${i+1}/${handles.length})...`;
-      cache.forEach(tw => { cards.appendChild(makeCard(h, tw.created_at||"", tw.text)); total++; });
+      cache.forEach(tw => { if(withinWin(tw)){ cards.appendChild(makeCard(h, tw.created_at||"", tw.text)); total++; } });
       cachedSrc++;
       continue;
     }
@@ -527,8 +576,8 @@ async function loadSelected(force){
     try{
       const data = await callProxy({ source: h }, status);
       const tws = data.tweets || [];
-      setCachedTweets(h, tws);
-      tws.forEach(tw => { cards.appendChild(makeCard(h, tw.created_at||"", tw.text)); total++; });
+      setCachedTweets(h, tws);   // lưu nguyên 24h vào cache; chỉ lọc khi hiển thị
+      tws.forEach(tw => { if(withinWin(tw)){ cards.appendChild(makeCard(h, tw.created_at||"", tw.text)); total++; } });
       fetched++;
     }catch(e){
       const note = document.createElement("div");
@@ -539,11 +588,12 @@ async function loadSelected(force){
   }
   if(fetched) pushNewsToServer();   // có kéo mới → lưu lên server để thiết bị khác đọc lại
   $("#load").disabled = false; $("#reload").disabled = false;
-  if(!total){ status.textContent = "Các nguồn đã chọn không có tin mới trong 24h."; return; }
+  const w = getWinHours();
+  if(!total){ status.textContent = `Các nguồn đã chọn không có tin trong ${w} giờ gần nhất.`; return; }
   const parts = [];
   if(fetched) parts.push(`${fetched} kênh kéo mới`);
   if(cachedSrc) parts.push(`${cachedSrc} kênh từ bộ nhớ`);
-  status.textContent = `Đã hiển thị ${total} tin (${parts.join(", ")}). Bấm “Dịch & Học” trên tin muốn học.`;
+  status.textContent = `Đã hiển thị ${total} tin trong ${w} giờ gần nhất (${parts.join(", ")}). Bấm “Dịch & Học” trên tin muốn học.`;
 }
 function makeCard(handle, time, text){
   const card = document.createElement("article");
