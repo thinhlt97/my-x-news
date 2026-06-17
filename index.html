@@ -449,6 +449,7 @@ function esc(s){ return (s||"").replace(/[&<>]/g, c=>({"&":"&amp;","<":"&lt;",">
 /* ---------- TAB TIN TỨC ---------- */
 const status = $("#status");
 const selected = new Set();
+const WINKEY = "touchline_window_hours";   // khóa lưu khoảng thời gian; dùng ngay ở dòng đặt giá trị #winSel bên dưới
 
 $("#selAll").addEventListener("click", () => setAll(true));
 $("#selNone").addEventListener("click", () => setAll(false));
@@ -538,7 +539,7 @@ function addSource(){
   inp.value = ""; status.textContent = `Đã thêm @${h}. Bấm “Tải tin đã chọn” để kéo.`;
 }
 // ----- Khoảng thời gian kéo tin gần nhất (6/12/24h, mặc định 24h) -----
-const WINKEY = "touchline_window_hours";
+// (WINKEY khai báo gần đầu khối tin tức vì getWinHours được gọi ngay lúc tải để đặt giá trị select)
 function getWinHours(){ const v = parseInt(localStorage.getItem(WINKEY), 10); return (v === 6 || v === 12) ? v : 24; }
 function setWinHours(v){ try{ localStorage.setItem(WINKEY, String(v)); }catch(e){} }
 // Tweet có nằm trong khoảng đang chọn không. Proxy đã giới hạn 24h sẵn nên 24h = không lọc thêm.
