@@ -4,6 +4,15 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>The Touchline — Học tiếng Anh qua tin bóng đá trên X</title>
+<!-- PWA: cài vào Màn hình chính iPhone, chạy toàn màn hình -->
+<meta name="theme-color" content="#a8121f">
+<link rel="manifest" href="/manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="The Touchline">
+<link rel="apple-touch-icon" href="/icons/icon-180.png">
+<link rel="icon" type="image/png" href="/icons/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..600&family=Be+Vietnam+Pro:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
@@ -782,6 +791,11 @@ function renderQuiz(questions){
 initVocab();
 buildChips();   // dựng ngay từ bản local để không phải chờ mạng
 pullSourcesFromServer().then(() => { if(personalCode) buildChips(); });   // có mã thì đồng bộ nguồn rồi dựng lại
+
+// PWA: đăng ký service worker (cho phép cài app + mở lại khi mất mạng)
+if("serviceWorker" in navigator){
+  window.addEventListener("load", () => { navigator.serviceWorker.register("/sw.js").catch(()=>{}); });
+}
 </script>
 </body>
 </html>
