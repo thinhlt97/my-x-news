@@ -899,13 +899,20 @@ window.addEventListener("scroll", onScrollPin, { passive:true });
 window.addEventListener("resize", onScrollPin);
 
 /* ---------- CỘT PHẢI: tra phát âm US / UK (kiểu từ điển Cambridge) ----------
-   Cambridge chặn nhúng iframe + chặn bot nên không kéo audio thật được. Ở đây:
-   - Phát âm bằng Google Translate TTS (rõ, tự nhiên), tách giọng US (en) và UK (en-GB).
-   - Nếu mạng chặn/offline thì đọc bằng giọng máy en-US / en-GB của thiết bị.
-   - Kèm IPA (Free Dictionary API) và nút mở thẳng trang Cambridge cho từ đó. */
+   Cambridge chặn nhúng iframe + chặn bot nên không kéo audio thật được. Thay vào đó,
+   phát âm theo thứ tự ưu tiên (chất lượng giảm dần), tự nhảy nguồn sau nếu nguồn trước lỗi:
+   1) Bản thu người đọc của Oxford trên CDN Google (rõ nhất, chính giọng nghe khi tra Google),
+      dựng thẳng URL theo từ + giọng us/gb.
+   2) Google Translate TTS (us=en, uk=en-GB) cho từ Oxford không có.
+   3) Giọng máy en-US / en-GB của thiết bị khi offline/bị chặn.
+   Kèm IPA (Free Dictionary API) và nút mở thẳng trang Cambridge cho từ đó. */
 function ttsUrl(word, accent){
   const tl = accent === "us" ? "en" : "en-GB";
   return "https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=" + tl + "&q=" + encodeURIComponent(word);
+}
+function oxfordUrl(word, accent){
+  const region = accent === "us" ? "us" : "gb";
+  return "https://ssl.gstatic.com/dictionary/static/sounds/oxford/" + encodeURIComponent(word) + "--_" + region + "_1.mp3";
 }
 function pickVoice(lang){
   const vs = (window.speechSynthesis && speechSynthesis.getVoices()) || [];
@@ -929,16 +936,26 @@ function speak(word, lang){
     speechSynthesis.speak(u);
   }catch(e){}
 }
+// Thử lần lượt các URL audio; URL nào lỗi (404/chặn) thì nhảy sang URL kế, hết thì gọi onFail.
+function playFromUrls(urls, onFail){
+  let i = 0, moved = false;
+  const tryNext = () => {
+    moved = false;
+    if(i >= urls.length){ onFail(); return; }
+    const url = urls[i++];
+    const advance = () => { if(moved) return; moved = true; tryNext(); };
+    try{
+      const a = new Audio(url);
+      a.onerror = advance;
+      const p = a.play();
+      if(p && p.catch) p.catch(advance);
+    }catch(e){ advance(); }
+  };
+  tryNext();
+}
 function playAccent(word, accent){
   const lang = accent === "us" ? "en-US" : "en-GB";
-  let fellBack = false;
-  const fb = () => { if(fellBack) return; fellBack = true; speak(word, lang); };
-  try{
-    const a = new Audio(ttsUrl(word, accent));
-    a.onerror = fb;                       // Google chặn/offline → đọc bằng giọng máy
-    const p = a.play();
-    if(p && p.catch) p.catch(fb);
-  }catch(e){ fb(); }
+  playFromUrls([ oxfordUrl(word, accent), ttsUrl(word, accent) ], () => speak(word, lang));
 }
 function renderDict(word, ipa){
   const el = $("#dictResult"); if(!el) return;
