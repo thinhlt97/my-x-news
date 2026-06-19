@@ -166,8 +166,8 @@
     background:var(--paper-2);border:1px solid var(--rule-strong);box-shadow:var(--shadow);padding:1rem 1rem 1.1rem}
   .side-h{font-family:"Newsreader",serif;font-weight:600;font-size:1.05rem;color:var(--red-deep);
     border-bottom:2px solid var(--ink);padding-bottom:.4rem;margin-bottom:.7rem}
-  #pinPanel{left:16px;display:none}
-  #dictPanel{right:16px}
+  #pinPanel{left:16px;display:none;width:clamp(248px,calc((100vw - 920px)/2 - 32px),400px)}
+  #dictPanel{right:16px;width:clamp(248px,calc((100vw - 920px)/2 - 32px),340px)}
   .pin-empty,.dict-empty,.dhint{font-size:.84rem;color:var(--ink-faint);line-height:1.5;font-style:italic}
   .pin-meta{font-size:.74rem;color:var(--ink-faint);margin-bottom:.4rem;display:flex;justify-content:space-between;gap:.5rem}
   .pin-text{font-family:"Newsreader",serif;font-size:1.05rem;line-height:1.55;color:var(--ink);white-space:pre-wrap}
@@ -185,16 +185,12 @@
   .dlink{display:inline-block;font-size:.8rem;color:var(--red);text-decoration:underline;text-underline-offset:2px}
   .dict-close{display:none;position:absolute;top:.45rem;right:.6rem;background:none;border:none;
     font-size:1.5rem;color:var(--ink-soft);line-height:1}
-  .btn-pin{background:transparent;color:var(--ink-soft);border:1px solid var(--rule-strong);
-    padding:.5rem .9rem;font-size:.82rem;border-radius:2px;font-weight:600}
-  .btn-pin:hover{border-color:var(--red);color:var(--red)}
   #dictFab{display:none;position:fixed;right:1.1rem;bottom:1.3rem;z-index:55;width:54px;height:54px;
     border-radius:50%;background:var(--red);color:#fff;font-size:1.5rem;align-items:center;justify-content:center;
     box-shadow:0 8px 22px -8px rgba(28,25,22,.6)}
-  @media (min-width:1500px){ #pinPanel{display:block} }
+  @media (min-width:1500px){ body.tab-news #pinPanel{display:block} }
   @media (max-width:1499px){
     #pinPanel{display:none!important}
-    .btn-pin{display:none!important}
     #dictPanel{top:auto;bottom:0;left:0;right:0;width:auto;max-height:74vh;z-index:60;
       border-radius:16px 16px 0 0;transform:translateY(115%);transition:transform .26s ease;padding-bottom:1.4rem}
     #dictPanel.open{transform:none}
@@ -203,7 +199,7 @@
   }
 </style>
 </head>
-<body>
+<body class="tab-news">
 <div class="wrap">
   <header class="mast">
     <div class="kicker">X Football Digest · English Study Edition</div>
@@ -285,7 +281,7 @@
 <!-- Cột trái: ghim full bài đang đọc (chỉ hiện trên màn rộng) -->
 <aside class="side" id="pinPanel" aria-label="Bài gốc đang đọc">
   <div class="side-h">📌 Bài gốc đang đọc</div>
-  <div id="pinBody" class="pin-empty">Bấm “📌 Ghim bài” trên một tin (hoặc bấm dịch) để xem full bài ở đây trong khi đọc bản dịch từng câu.</div>
+  <div id="pinBody" class="pin-empty">Kéo tin về rồi cuộn đọc — cột này luôn hiện full bài bạn đang đọc, để vừa đọc bản dịch từng câu vừa nhìn lại cả bài.</div>
 </aside>
 
 <!-- Cột phải: tra phát âm US / UK (kiểu từ điển Cambridge) -->
@@ -493,8 +489,10 @@ function activateTab(name){
   document.querySelectorAll(".view").forEach(x => x.classList.remove("active"));
   document.querySelector(`.tab[data-tab="${name}"]`).classList.add("active");
   $("#view-" + name).classList.add("active");
+  document.body.classList.toggle("tab-news", name === "news");   // cột trái chỉ hiện ở tab tin tức
   if(name === "vocab") renderVocab();
   window.scrollTo(0, scrollPos[name] || 0);                 // về đúng chỗ đọc dở
+  updatePin();                                              // cập nhật bài đang đọc ở cột trái
 }
 document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => activateTab(t.dataset.tab)));
 
@@ -664,6 +662,7 @@ async function loadSelected(force){
   }
   if(fetched) pushNewsToServer();   // có kéo mới → lưu lên server để thiết bị khác đọc lại
   $("#load").disabled = false; $("#reload").disabled = false;
+  activeCard = null; updatePin();   // chọn lại bài đầu tiên cho cột trái
   const w = getWinHours();
   if(!total){ status.textContent = `Các nguồn đã chọn không có tin trong ${w} giờ gần nhất.`; return; }
   const parts = [];
@@ -682,14 +681,13 @@ function makeCard(handle, time, text){
   +   `<button class="btn-translate btn-translate-alt" data-p="groq">Dịch (Groq)</button>`
   +   `<button class="btn-translate btn-translate-c1" data-p="claude-haiku">Dịch (Claude Haiku)</button>`
   +   `<button class="btn-translate btn-translate-c2" data-p="claude-sonnet">Dịch (Claude Sonnet)</button>`
-  +   `<button class="btn-pin" title="Ghim full bài sang cột trái để vừa đọc bản dịch vừa nhìn lại cả bài">📌 Ghim bài</button>`
   +   `<span class="cstatus" style="font-size:.8rem;color:var(--ink-soft)"></span>`
   + `</div>`
   + `<div class="card-result"></div>`;
   const cstatus = card.querySelector(".cstatus");
   const result = card.querySelector(".card-result");
   const btns = card.querySelectorAll(".btn-translate");
-  card.querySelector(".btn-pin").addEventListener("click", () => pinTweet(handle, time, text));
+  card._tw = { handle, time, text };   // cột trái tự lấy bài này khi bạn cuộn đến
   // Nếu tweet này đã dịch trong ngày → hiện ngay từ bộ nhớ, không gọi LLM.
   const cachedTr = getCachedTr(text);
   if(cachedTr){
@@ -699,7 +697,6 @@ function makeCard(handle, time, text){
   }
   btns.forEach(btn => btn.addEventListener("click", async () => {
     const provider = btn.dataset.p;
-    pinTweet(handle, time, text);   // tự ghim full bài sang cột trái khi bắt đầu dịch
     btns.forEach(b => b.disabled = true);
     cstatus.innerHTML = `<span class="spin"></span>Đang dịch (${pLabel(provider)})...`;
     try{
@@ -860,26 +857,67 @@ function renderQuiz(questions){
   });
 }
 
-/* ---------- CỘT TRÁI: ghim full bài đang đọc ---------- */
+/* ---------- CỘT TRÁI: tự hiện full bài bạn đang đọc ----------
+   Không cần chọn tin nào. Khi cuộn, cột trái luôn bám tin đang ở vùng đọc
+   (gần đầu khung nhìn), kèm thanh cuộn riêng nếu bài dài. */
+let activeCard = null;
 function pinTweet(handle, time, text){
   const b = $("#pinBody"); if(!b) return;
   b.classList.remove("pin-empty");
   b.innerHTML = `<div class="pin-meta"><span>@${esc(handle)}</span><span>${esc(time)}</span></div>`
     + `<div class="pin-text">${esc(text)}</div>`;
 }
+function resetPinEmpty(){
+  const b = $("#pinBody"); if(!b) return;
+  activeCard = null;
+  b.classList.add("pin-empty");
+  b.innerHTML = "Kéo tin về rồi cuộn đọc — cột này luôn hiện full bài bạn đang đọc.";
+}
+function updatePin(){
+  if(!document.body.classList.contains("tab-news")) return;   // chỉ chạy ở tab tin tức
+  const cards = [...document.querySelectorAll("#cards .card")];
+  if(!cards.length){ resetPinEmpty(); return; }
+  const anchor = Math.min(160, window.innerHeight * 0.28);     // "vạch đọc" gần đầu khung nhìn
+  let best = cards[0], bestD = Infinity;
+  for(const c of cards){
+    const r = c.getBoundingClientRect();
+    if(r.top <= anchor && r.bottom > anchor){ best = c; break; }   // bài đang phủ vạch đọc
+    const d = r.top > anchor ? r.top - anchor : anchor - r.bottom; // nếu không, lấy bài gần nhất
+    if(d < bestD){ bestD = d; best = c; }
+  }
+  if(best && best !== activeCard){
+    activeCard = best;
+    const t = best._tw; if(t) pinTweet(t.handle, t.time, t.text);
+  }
+}
+let pinRAF = false;
+function onScrollPin(){
+  if(pinRAF) return; pinRAF = true;
+  requestAnimationFrame(() => { pinRAF = false; updatePin(); });
+}
+window.addEventListener("scroll", onScrollPin, { passive:true });
+window.addEventListener("resize", onScrollPin);
 
 /* ---------- CỘT PHẢI: tra phát âm US / UK (kiểu từ điển Cambridge) ----------
-   Cambridge chặn nhúng iframe + chặn bot nên không kéo trực tiếp được. Ở đây:
-   - Ưu tiên audio người đọc thật từ Free Dictionary API (CORS mở), tách giọng US/UK.
-   - Thiếu giọng nào thì đọc bằng giọng máy en-US / en-GB của thiết bị (iPhone đọc rất hay).
-   - Kèm IPA và nút mở thẳng trang Cambridge cho từ đó. */
-let dictAudio = { us:null, uk:null };
+   Cambridge chặn nhúng iframe + chặn bot nên không kéo audio thật được. Ở đây:
+   - Phát âm bằng Google Translate TTS (rõ, tự nhiên), tách giọng US (en) và UK (en-GB).
+   - Nếu mạng chặn/offline thì đọc bằng giọng máy en-US / en-GB của thiết bị.
+   - Kèm IPA (Free Dictionary API) và nút mở thẳng trang Cambridge cho từ đó. */
+function ttsUrl(word, accent){
+  const tl = accent === "us" ? "en" : "en-GB";
+  return "https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=" + tl + "&q=" + encodeURIComponent(word);
+}
 function pickVoice(lang){
   const vs = (window.speechSynthesis && speechSynthesis.getVoices()) || [];
+  const want = lang.toLowerCase(), base = want.split("-")[0];
   const norm = s => (s||"").replace("_","-").toLowerCase();
-  return vs.find(v => norm(v.lang) === lang.toLowerCase())
-      || vs.find(v => norm(v.lang).startsWith(lang.toLowerCase()))
-      || vs.find(v => norm(v.lang).startsWith("en"));
+  const pref = want === "en-gb"
+    ? ["google uk english","daniel","arthur","kate","serena","martha"]   // giọng UK hay theo từng máy
+    : ["google us english","samantha","aaron","alex","ava","allison"];    // giọng US hay theo từng máy
+  return vs.find(v => pref.some(n => v.name.toLowerCase().includes(n)) && norm(v.lang).startsWith(base))
+      || vs.find(v => norm(v.lang) === want)
+      || vs.find(v => norm(v.lang).startsWith(want))
+      || vs.find(v => norm(v.lang).startsWith(base));
 }
 function speak(word, lang){
   if(!window.speechSynthesis) return;
@@ -893,9 +931,14 @@ function speak(word, lang){
 }
 function playAccent(word, accent){
   const lang = accent === "us" ? "en-US" : "en-GB";
-  const url = dictAudio[accent];
-  if(url){ const a = new Audio(url); a.play().catch(() => speak(word, lang)); }
-  else speak(word, lang);
+  let fellBack = false;
+  const fb = () => { if(fellBack) return; fellBack = true; speak(word, lang); };
+  try{
+    const a = new Audio(ttsUrl(word, accent));
+    a.onerror = fb;                       // Google chặn/offline → đọc bằng giọng máy
+    const p = a.play();
+    if(p && p.catch) p.catch(fb);
+  }catch(e){ fb(); }
 }
 function renderDict(word, ipa){
   const el = $("#dictResult"); if(!el) return;
@@ -912,7 +955,6 @@ function renderDict(word, ipa){
 async function dictLookup(raw){
   const word = (raw||"").trim().toLowerCase().replace(/\s+/g," ");
   if(!word) return;
-  dictAudio = { us:null, uk:null };
   const el = $("#dictResult"); el.classList.remove("dict-empty");
   el.innerHTML = `<div class="dword">${esc(word)}</div><div class="dhint"><span class="spin"></span>Đang tra...</div>`;
   let ipa = "";
@@ -921,15 +963,11 @@ async function dictLookup(raw){
     if(r.ok){
       const d = await r.json();
       const phs = (d[0] && d[0].phonetics) || [];
-      phs.forEach(p => {
-        if(!p.audio) return;
-        if(/-us\.mp3/i.test(p.audio)) dictAudio.us = dictAudio.us || p.audio;
-        else if(/-uk\.mp3/i.test(p.audio)) dictAudio.uk = dictAudio.uk || p.audio;
-      });
       ipa = (phs.find(p => p.text) || {}).text || (d[0] && d[0].phonetic) || "";
     }
   }catch(e){}
-  renderDict(word, ipa);   // luôn vẽ — thiếu audio thật thì nút sẽ đọc bằng giọng máy
+  renderDict(word, ipa);
+  playAccent(word, "us");   // tra xong đọc luôn giọng US cho tiện
 }
 $("#dictGo").addEventListener("click", () => dictLookup($("#dictWord").value));
 $("#dictWord").addEventListener("keydown", e => { if(e.key === "Enter"){ e.preventDefault(); dictLookup(e.target.value); } });

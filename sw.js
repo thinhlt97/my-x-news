@@ -4,7 +4,7 @@
    - Tài nguyên tĩnh cùng origin (icon, manifest): cache-first.
    - Gọi API (proxy Vercel, vocab-worker) khác origin & mọi POST: KHÔNG can thiệp -> đi thẳng ra mạng.
    Đổi CACHE khi cập nhật để dọn bản cũ. */
-const CACHE = "touchline-v2";
+const CACHE = "touchline-v3";
 const SHELL = ["/", "/index.html", "/manifest.json",
   "/icons/icon-180.png", "/icons/icon-192.png", "/icons/icon-512.png"];
 
