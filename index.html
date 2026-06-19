@@ -103,6 +103,8 @@
   .btn-translate:disabled{opacity:.5;cursor:not-allowed}
   .btn-translate-alt{background:var(--ink)}
   .btn-translate-alt:hover{background:#000}
+  .btn-translate-c1{background:#c4633a}.btn-translate-c1:hover{background:#a4512e}
+  .btn-translate-c2{background:#8a3b1e}.btn-translate-c2:hover{background:#6f2f17}
   .card-result{padding:0 1.1rem 1.1rem;display:none}
   .card-result.show{display:block}
 
@@ -224,6 +226,8 @@
       <div style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
         <button class="btn-go" id="makeQuizGemini">Tạo đề (Gemini)</button>
         <button class="btn-go" id="makeQuizGroq" style="background:var(--ink)">Tạo đề (Groq)</button>
+        <button class="btn-go" id="makeQuizClaudeHaiku" style="background:#c4633a">Tạo đề (Claude Haiku)</button>
+        <button class="btn-go" id="makeQuizClaudeSonnet" style="background:#8a3b1e">Tạo đề (Claude Sonnet)</button>
         <span id="vstatus"></span>
       </div>
       <p class="hint">Tích chọn các từ muốn ôn rồi bấm “Tạo đề ôn tập” → 10 câu trắc nghiệm tiếng Anh.</p>
@@ -240,6 +244,9 @@
 <script>
 // ===== CẤU HÌNH — sửa nếu URL proxy của bạn khác =====
 const WORKER_URL = "https://x-translate-proxy.vercel.app/api/translate";
+// Nhãn hiển thị đẹp cho từng provider (giá trị gửi proxy giữ nguyên dạng kebab).
+const PROVIDER_LABEL = { gemini:"Gemini", groq:"Groq", "claude-haiku":"Claude Haiku", "claude-sonnet":"Claude Sonnet" };
+const pLabel = p => PROVIDER_LABEL[p] || p;
 // digest.json không còn dùng — giờ kéo tin theo yêu cầu qua proxy.
 // Danh sách kênh: sửa ở đây để thêm/bớt nguồn (lấy phần sau x.com/, không có @).
 const SOURCES = ["David_Ornstein","JamesPearceLFC","EBL2017","_pauljoyce","FabrizioRomano","BBCSport","TheAthleticFC","nytimes","WSJ"];
@@ -614,6 +621,8 @@ function makeCard(handle, time, text){
   + `<div class="card-actions">`
   +   `<button class="btn-translate" data-p="gemini">Dịch (Gemini)</button>`
   +   `<button class="btn-translate btn-translate-alt" data-p="groq">Dịch (Groq)</button>`
+  +   `<button class="btn-translate btn-translate-c1" data-p="claude-haiku">Dịch (Claude Haiku)</button>`
+  +   `<button class="btn-translate btn-translate-c2" data-p="claude-sonnet">Dịch (Claude Sonnet)</button>`
   +   `<span class="cstatus" style="font-size:.8rem;color:var(--ink-soft)"></span>`
   + `</div>`
   + `<div class="card-result"></div>`;
@@ -625,12 +634,12 @@ function makeCard(handle, time, text){
   if(cachedTr){
     renderSentences(result, cachedTr.parsed);
     result.classList.add("show");
-    cstatus.textContent = `Bản dịch đã lưu (${cachedTr.provider}) — bấm nút dịch để dịch lại.`;
+    cstatus.textContent = `Bản dịch đã lưu (${pLabel(cachedTr.provider)}) — bấm nút dịch để dịch lại.`;
   }
   btns.forEach(btn => btn.addEventListener("click", async () => {
     const provider = btn.dataset.p;
     btns.forEach(b => b.disabled = true);
-    cstatus.innerHTML = `<span class="spin"></span>Đang dịch (${provider})...`;
+    cstatus.innerHTML = `<span class="spin"></span>Đang dịch (${pLabel(provider)})...`;
     try{
       const data = await callProxy({ tweets: [text], provider }, cstatus);
       const parsed = (data.tweets && data.tweets[0]) || { sentences: [] };
@@ -638,10 +647,10 @@ function makeCard(handle, time, text){
       pushNewsToServer();   // đồng bộ bản dịch lên server (nếu đã nhập mã)
       renderSentences(result, parsed);
       result.classList.add("show");
-      cstatus.textContent = `Đã dịch bằng ${provider} — có thể bấm nút kia để dịch lại.`;
+      cstatus.textContent = `Đã dịch bằng ${pLabel(provider)} — có thể bấm nút khác để dịch lại.`;
     }catch(e){
       cstatus.textContent = "";
-      result.innerHTML = `<div class="err">Không dịch được (${provider}): ${esc(e.message)}.</div>`;
+      result.innerHTML = `<div class="err">Không dịch được (${pLabel(provider)}): ${esc(e.message)}.</div>`;
       result.classList.add("show");
     }finally{
       btns.forEach(b => b.disabled = false);
@@ -704,6 +713,8 @@ $("#vRandom").addEventListener("click", () => {
 });
 $("#makeQuizGemini").addEventListener("click", () => makeQuiz("gemini"));
 $("#makeQuizGroq").addEventListener("click", () => makeQuiz("groq"));
+$("#makeQuizClaudeHaiku").addEventListener("click", () => makeQuiz("claude-haiku"));
+$("#makeQuizClaudeSonnet").addEventListener("click", () => makeQuiz("claude-sonnet"));
 $("#codeSave").addEventListener("click", () => {
   const code = $("#codeInput").value.trim();
   if(!/^[A-Za-z0-9_-]{4,64}$/.test(code)){ setCodeStatus("Mã không hợp lệ (4-64 ký tự: chữ, số, gạch)."); return; }
@@ -742,12 +753,12 @@ async function makeQuiz(provider){
   const chosen = vocabCache.filter(v => vocabSelected.has(v.word));
   const vstatus = $("#vstatus");
   if(!chosen.length){ vstatus.textContent = "Hãy tích chọn ít nhất một từ."; return; }
-  vstatus.innerHTML = `<span class="spin"></span>Đang tạo 10 câu hỏi (${provider})...`;
+  vstatus.innerHTML = `<span class="spin"></span>Đang tạo 10 câu hỏi (${pLabel(provider)})...`;
   // chuyển sang tab ôn tập (đề mới → về đầu trang)
   scrollPos.quiz = 0;
   activateTab("quiz");
   const area = $("#quizArea");
-  area.innerHTML = `<div class="empty"><span class="spin"></span> Đang tạo đề từ ${chosen.length} từ (${provider})...</div>`;
+  area.innerHTML = `<div class="empty"><span class="spin"></span> Đang tạo đề từ ${chosen.length} từ (${pLabel(provider)})...</div>`;
   try{
     const data = await callProxy({ quiz: chosen, provider }, null);
     const qs = (data.questions||[]).slice(0,10);
