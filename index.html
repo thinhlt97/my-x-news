@@ -62,6 +62,9 @@
   .chip.on .cnt{background:var(--red);color:#fff}
   .chip .tick{font-weight:700;opacity:0}.chip.on .tick{opacity:1}
   .chip .rm{margin-left:.15rem;font-weight:700;opacity:.55;padding:0 .15rem;border-radius:4px}
+  .chip.topic{font-weight:600}
+  .chip.topic.on{background:var(--red);border-color:var(--red);color:#fff}
+  #suggestChips:empty{display:none}#topicChips{margin-bottom:1rem}
   .chip .rm:hover{opacity:1;color:var(--red);background:rgba(0,0,0,.08)}
   .add-src{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin-bottom:1rem}
   .add-src input{flex:1;min-width:14rem;padding:.45rem .7rem;border:1px solid var(--rule-strong);
@@ -216,15 +219,26 @@
   <section class="view active" id="view-news">
     <div class="panel">
       <div class="src-label">
-        <span>Chọn nguồn để tải</span>
-        <span class="mini" id="selAll">Chọn tất cả</span>
-        <span class="mini" id="selNone">Bỏ chọn</span>
-        <span class="mini" id="restoreSrc" title="Hiện lại các nguồn gốc đã ẩn" style="display:none">↺ Hiện nguồn đã ẩn</span>
+        <span>1 · Chọn chủ đề bạn quan tâm</span>
       </div>
-      <div class="chips" id="chips"></div>
+      <div class="chips" id="topicChips"></div>
+
+      <div class="src-label" id="suggestLabel" style="display:none">
+        <span>2 · Nguồn đọc nhiều theo chủ đề (đã thêm sẵn cho bạn)</span>
+        <span class="mini" id="suggSelAll">Chọn tất cả</span>
+        <span class="mini" id="suggSelNone">Bỏ chọn</span>
+      </div>
+      <div class="chips" id="suggestChips"></div>
+
+      <div class="src-label">
+        <span>📌 Nguồn của tôi</span>
+        <span class="mini" id="mySelAll">Chọn tất cả</span>
+        <span class="mini" id="mySelNone">Bỏ chọn</span>
+      </div>
+      <div class="chips" id="myChips"></div>
       <div class="add-src">
         <input id="newSource" type="text" maxlength="120" autocomplete="off"
-               placeholder="Thêm kênh: dán @handle hoặc link x.com/handle (vd: ihtesham2005)">
+               placeholder="Thêm vào Nguồn của tôi: dán @handle hoặc link x.com/handle (vd: ihtesham2005)">
         <button class="mini" id="addSource">+ Thêm nguồn</button>
       </div>
       <div style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
@@ -303,8 +317,19 @@ const WORKER_URL = "https://x-translate-proxy.vercel.app/api/translate";
 const PROVIDER_LABEL = { gemini:"Gemini", groq:"Groq", "claude-haiku":"Claude Haiku", "claude-sonnet":"Claude Sonnet" };
 const pLabel = p => PROVIDER_LABEL[p] || p;
 // digest.json không còn dùng — giờ kéo tin theo yêu cầu qua proxy.
-// Danh sách kênh: sửa ở đây để thêm/bớt nguồn (lấy phần sau x.com/, không có @).
+// "Nguồn của tôi" mặc định lần đầu (lấy phần sau x.com/, không có @). Người dùng thêm/xóa thoải mái.
 const SOURCES = ["David_Ornstein","JamesPearceLFC","EBL2017","_pauljoyce","FabrizioRomano","BBCSport","TheAthleticFC","nytimes","WSJ"];
+// THƯ VIỆN CHỦ ĐỀ: mỗi chủ đề kèm vài kênh X được đọc nhiều. Chọn chủ đề → các kênh này
+// hiện ra và được tích sẵn (bỏ tích kênh nào không muốn). Sửa/thêm chủ đề & kênh ngay tại đây.
+const TOPICS = [
+  { id:"football",      label:"⚽ Bóng đá",   sources:["FabrizioRomano","David_Ornstein","JamesPearceLFC","_pauljoyce","OptaJoe","brfootball"] },
+  { id:"sport",         label:"🏟️ Thể thao",  sources:["BBCSport","SkySportsNews","ESPN","TheAthletic","WhoScored"] },
+  { id:"news",          label:"📰 Tin tức",    sources:["BBCBreaking","Reuters","AP","CNN","SkyNews","BBCWorld"] },
+  { id:"tech",          label:"💻 Công nghệ",  sources:["TechCrunch","verge","WIRED","engadget","arstechnica","TheRegister"] },
+  { id:"entertainment", label:"🎬 Giải trí",   sources:["Variety","THR","EW","RottenTomatoes","IGN"] },
+  { id:"business",      label:"💼 Kinh doanh", sources:["WSJ","FinancialTimes","business","Forbes","TheEconomist"] },
+  { id:"science",       label:"🔬 Khoa học",   sources:["NASA","ScienceMagazine","newscientist","NatGeo"] },
+];
 // Worker lưu từ vựng dùng chung giữa các thiết bị (sửa thành URL vocab-worker của bạn):
 const VOCAB_URL = "https://vocab-worker.thinhlt1069-xnews.workers.dev";
 const VKEY = "touchline_vocab";       // lưu tạm trong trình duyệt
@@ -384,11 +409,21 @@ function pushNewsToServer(){
   }).catch(()=>{});
 }
 
-/* ---------- Đồng bộ danh sách NGUỒN (tự thêm + nguồn gốc đã ẩn) qua mã cá nhân ---------- */
-// Chuẩn hóa dữ liệu server: chấp nhận mảng cũ (chỉ custom) hoặc object {custom,hidden}.
+/* ---------- Đồng bộ danh sách NGUỒN (Nguồn của tôi + chủ đề đã chọn) qua mã cá nhân ---------- */
+// Chuẩn hóa dữ liệu server thành { mySources, topics }. Chấp nhận các định dạng cũ:
+//   - mảng (chỉ custom cũ)            -> mySources = SOURCES + mảng đó
+//   - object { custom, hidden }       -> mySources = (SOURCES bỏ hidden) + custom
+//   - object { mySources, topics }    -> dùng nguyên (định dạng mới)
 function normalizeSources(s){
-  if(Array.isArray(s)) return { custom: s, hidden: [] };
-  if(s && typeof s === "object") return { custom: Array.isArray(s.custom) ? s.custom : [], hidden: Array.isArray(s.hidden) ? s.hidden : [] };
+  if(Array.isArray(s)) return { mySources: dedup([...SOURCES, ...s]), topics: [] };
+  if(s && typeof s === "object"){
+    if(Array.isArray(s.mySources) || Array.isArray(s.topics))
+      return { mySources: Array.isArray(s.mySources) ? s.mySources : [], topics: Array.isArray(s.topics) ? s.topics : [] };
+    if(Array.isArray(s.custom) || Array.isArray(s.hidden)){
+      const hid = new Set((s.hidden||[]).map(lc));
+      return { mySources: dedup([...SOURCES.filter(h => !hid.has(lc(h))), ...(s.custom||[])]), topics: [] };
+    }
+  }
   return null;
 }
 async function pullSourcesFromServer(){
@@ -397,14 +432,14 @@ async function pullSourcesFromServer(){
     const r = await fetch(VOCAB_URL + "?code=" + encodeURIComponent(personalCode) + "&kind=sources");
     const d = await r.json();
     const s = normalizeSources(d.sources);
-    if(s){ saveCustom(s.custom); saveHidden(s.hidden); }   // server là nguồn sự thật khi mở máy
+    if(s){ saveMySources(s.mySources); saveTopics(s.topics); }   // server là nguồn sự thật khi mở máy
   }catch(e){}
 }
 function pushSourcesToServer(){
   if(!personalCode) return;
   fetch(VOCAB_URL + "?code=" + encodeURIComponent(personalCode) + "&kind=sources", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ sources: { custom: getCustom(), hidden: getHidden() } })
+    body: JSON.stringify({ sources: { mySources: getMySources(), topics: getTopics() } })
   }).catch(()=>{});
 }
 
@@ -448,13 +483,13 @@ async function connectCode(code){
   localMirror(); updateBadge();
   await pushVocab();
   renderVocab();
-  // Nguồn (tự thêm + đã ẩn): gộp server + local (lần đầu không mất thay đổi trên máy này) rồi đẩy lên.
+  // Nguồn của tôi + chủ đề: gộp server + local (lần đầu không mất thay đổi trên máy này) rồi đẩy lên.
   try{
     const rs = await fetch(VOCAB_URL + "?code=" + encodeURIComponent(code) + "&kind=sources");
     const ds = await rs.json();
-    const srv = normalizeSources(ds.sources) || { custom: [], hidden: [] };
-    const uni = (a, b) => { const seen = new Set(), out = []; [...a, ...b].forEach(h => { const k = h.toLowerCase(); if(!seen.has(k)){ seen.add(k); out.push(h); } }); return out; };
-    saveCustom(uni(srv.custom, getCustom())); saveHidden(uni(srv.hidden, getHidden()));
+    const srv = normalizeSources(ds.sources) || { mySources: [], topics: [] };
+    saveMySources(dedup([...srv.mySources, ...getMySources()]));
+    saveTopics(dedup([...srv.topics, ...getTopics()]));
     pushSourcesToServer(); buildChips();
   }catch(e){}
 }
@@ -524,32 +559,46 @@ const status = $("#status");
 const selected = new Set();
 const WINKEY = "touchline_window_hours";   // khóa lưu khoảng thời gian; dùng ngay ở dòng đặt giá trị #winSel bên dưới
 
-$("#selAll").addEventListener("click", () => setAll(true));
-$("#selNone").addEventListener("click", () => setAll(false));
+$("#suggSelAll").addEventListener("click", () => setAll(true, "#suggestChips"));
+$("#suggSelNone").addEventListener("click", () => setAll(false, "#suggestChips"));
+$("#mySelAll").addEventListener("click", () => setAll(true, "#myChips"));
+$("#mySelNone").addEventListener("click", () => setAll(false, "#myChips"));
 $("#load").addEventListener("click", () => loadSelected(false));
 $("#reload").addEventListener("click", () => loadSelected(true));
 $("#addSource").addEventListener("click", addSource);
 $("#newSource").addEventListener("keydown", e => { if(e.key === "Enter"){ e.preventDefault(); addSource(); } });
-$("#restoreSrc").addEventListener("click", () => { saveHidden([]); pushSourcesToServer(); buildChips(); });
 $("#winSel").value = String(getWinHours());
 $("#winSel").addEventListener("change", e => { setWinHours(parseInt(e.target.value, 10) || 24); loadSelected(false); });
 
-function setAll(on){
-  document.querySelectorAll("#chips .chip").forEach(c => {
+// Tích/bỏ tích toàn bộ chip trong một vùng (suggest hoặc my).
+function setAll(on, sel){
+  document.querySelectorAll(sel + " .chip").forEach(c => {
     c.classList.toggle("on", on);
-    if(on) selected.add(c.dataset.handle); else selected.delete(c.dataset.handle);
+    const h = c.dataset.handle;
+    if(on) selected.add(h); else selected.delete(h);
   });
 }
-// ----- Quản lý nguồn: nguồn gốc (SOURCES) + nguồn tự thêm (custom) + nguồn gốc bị ẩn (hidden) -----
-const CUSTOMKEY = "touchline_custom_sources";   // nguồn tự thêm
-const HIDDENKEY = "touchline_hidden_sources";   // nguồn gốc đã ẩn
-function getCustom(){ try{ return JSON.parse(localStorage.getItem(CUSTOMKEY)) || []; }catch(e){ return []; } }
-function saveCustom(arr){ try{ localStorage.setItem(CUSTOMKEY, JSON.stringify(arr)); }catch(e){} }
-function getHidden(){ try{ return JSON.parse(localStorage.getItem(HIDDENKEY)) || []; }catch(e){ return []; } }
-function saveHidden(arr){ try{ localStorage.setItem(HIDDENKEY, JSON.stringify(arr)); }catch(e){} }
+
+// ----- Quản lý nguồn: chủ đề đã chọn (topics) + Nguồn của tôi (mySources) -----
+const MYKEY    = "touchline_my_sources";   // Nguồn của tôi (thêm/xóa thoải mái)
+const TOPICKEY = "touchline_topics";       // các chủ đề đang chọn
 const lc = s => (s || "").toLowerCase();
-function isBuiltin(h){ return SOURCES.some(x => lc(x) === lc(h)); }
-function isHidden(h){ return getHidden().some(x => lc(x) === lc(h)); }
+const dedup = arr => { const seen = new Set(), out = []; arr.forEach(h => { const k = lc(h); if(h && !seen.has(k)){ seen.add(k); out.push(h); } }); return out; };
+// Nguồn của tôi: lần đầu seed từ SOURCES (hoặc di trú từ khóa cũ custom/hidden).
+function getMySources(){
+  const raw = localStorage.getItem(MYKEY);
+  if(raw){ try{ const a = JSON.parse(raw); if(Array.isArray(a)) return a; }catch(e){} }
+  let custom = [], hidden = [];
+  try{ custom = JSON.parse(localStorage.getItem("touchline_custom_sources")) || []; }catch(e){}
+  try{ hidden = JSON.parse(localStorage.getItem("touchline_hidden_sources")) || []; }catch(e){}
+  const hid = new Set(hidden.map(lc));
+  const seeded = dedup([...SOURCES.filter(h => !hid.has(lc(h))), ...custom]);
+  saveMySources(seeded);
+  return seeded;
+}
+function saveMySources(arr){ try{ localStorage.setItem(MYKEY, JSON.stringify(dedup(arr))); }catch(e){} }
+function getTopics(){ try{ const a = JSON.parse(localStorage.getItem(TOPICKEY)); return Array.isArray(a) ? a : []; }catch(e){ return []; } }
+function saveTopics(arr){ try{ localStorage.setItem(TOPICKEY, JSON.stringify([...new Set(arr)])); }catch(e){} }
 // Lấy handle sạch từ input: chấp nhận "@handle", "handle", hoặc link x.com/twitter.com/handle.
 function parseHandle(raw){
   let s = (raw || "").trim();
@@ -557,38 +606,80 @@ function parseHandle(raw){
   if(m) s = m[1]; else s = s.replace(/^@/, "").trim();
   return s;
 }
-// Danh sách nguồn hiển thị = (nguồn gốc chưa ẩn) + (nguồn tự thêm), loại trùng.
-function allSources(){
-  const hid = new Set(getHidden().map(lc));
-  const seen = new Set(), out = [];
-  [...SOURCES.filter(h => !hid.has(lc(h))), ...getCustom()].forEach(h => { const k = lc(h); if(!seen.has(k)){ seen.add(k); out.push(h); } });
-  return out;
-}
-function makeChip(h){
-  const custom = !isBuiltin(h);
+// Chip nguồn dùng chung cho cả 2 vùng. on=tích sẵn; onRemove có thì hiện nút × để xóa.
+function makeSourceChip(h, on, onRemove){
   const chip = document.createElement("div");
-  chip.className = "chip on"; chip.dataset.handle = h;
-  chip.innerHTML = `<span class="tick">✓</span>@${esc(h)}<span class="rm" title="${custom ? "Xóa nguồn này" : "Ẩn nguồn này"}">×</span>`;
+  chip.className = "chip" + (on ? " on" : ""); chip.dataset.handle = h;
+  chip.innerHTML = `<span class="tick">✓</span>@${esc(h)}`
+    + (onRemove ? `<span class="rm" title="Xóa khỏi Nguồn của tôi">×</span>` : "");
   chip.addEventListener("click", () => {
-    const on = chip.classList.toggle("on");
-    if(on) selected.add(h); else selected.delete(h);
+    const nowOn = chip.classList.toggle("on");
+    if(nowOn) selected.add(h); else selected.delete(h);
   });
-  chip.querySelector(".rm").addEventListener("click", (e) => {
-    e.stopPropagation();
-    if(custom) saveCustom(getCustom().filter(x => lc(x) !== lc(h)));   // nguồn tự thêm: xóa hẳn
-    else saveHidden([...getHidden(), h]);                              // nguồn gốc: ẩn (có thể hiện lại)
-    pushSourcesToServer();
-    selected.delete(h); chip.remove(); updateRestoreLink();
-  });
+  if(onRemove) chip.querySelector(".rm").addEventListener("click", e => { e.stopPropagation(); onRemove(h, chip); });
   return chip;
 }
-function updateRestoreLink(){
-  const el = $("#restoreSrc"); if(el) el.style.display = getHidden().length ? "" : "none";
+// Chủ đề (bước 1): bật/tắt → hiện/ẩn các nguồn gợi ý của chủ đề đó.
+function buildTopicChips(){
+  const box = $("#topicChips"); box.innerHTML = "";
+  const sel = new Set(getTopics());
+  TOPICS.forEach(t => {
+    const chip = document.createElement("div");
+    chip.className = "chip topic" + (sel.has(t.id) ? " on" : ""); chip.dataset.topic = t.id;
+    chip.innerHTML = `<span class="tick">✓</span>${esc(t.label)}`;
+    chip.addEventListener("click", () => {
+      const on = chip.classList.toggle("on");
+      const cur = new Set(getTopics());
+      if(on) cur.add(t.id); else cur.delete(t.id);
+      saveTopics([...cur]); pushSourcesToServer(); buildSuggestChips();
+    });
+    box.appendChild(chip);
+  });
+}
+// Nguồn gợi ý (bước 2): hợp các kênh của những chủ đề đang chọn, bỏ kênh đã có trong Nguồn của tôi.
+// Kênh mới xuất hiện được tích sẵn; kênh đã từng hiện thì giữ trạng thái tích của người dùng.
+let suggestKnown = new Set();
+function buildSuggestChips(){
+  const box = $("#suggestChips");
+  const mine = new Set(getMySources().map(lc));
+  const seen = new Set(), visible = [];
+  getTopics().forEach(tid => {
+    const t = TOPICS.find(x => x.id === tid); if(!t) return;
+    t.sources.forEach(h => { const k = lc(h); if(!seen.has(k) && !mine.has(k)){ seen.add(k); visible.push(h); } });
+  });
+  const visSet = new Set(visible.map(lc));
+  // bỏ khỏi danh sách tải những kênh gợi ý không còn hiển thị (do tắt chủ đề / đã thêm vào Nguồn của tôi)
+  [...selected].forEach(h => { const k = lc(h); if(suggestKnown.has(k) && !visSet.has(k) && !mine.has(k)) selected.delete(h); });
+  box.innerHTML = "";
+  visible.forEach(h => {
+    const k = lc(h);
+    let on;
+    if(!suggestKnown.has(k)){ on = true; suggestKnown.add(k); }   // mới hiện → tích sẵn cho bạn
+    else on = selected.has(h);
+    if(on) selected.add(h);
+    box.appendChild(makeSourceChip(h, on, null));
+  });
+  $("#suggestLabel").style.display = getTopics().length ? "" : "none";
+}
+// Nguồn của tôi: thêm/xóa thoải mái, tích sẵn để tải.
+function buildMyChips(){
+  const box = $("#myChips"); box.innerHTML = "";
+  getMySources().forEach(h => {
+    selected.add(h);
+    box.appendChild(makeSourceChip(h, true, removeMySource));
+  });
+}
+function removeMySource(h, chip){
+  saveMySources(getMySources().filter(x => lc(x) !== lc(h)));
+  selected.delete(h); chip.remove();
+  pushSourcesToServer();
+  buildSuggestChips();   // kênh vừa xóa có thể quay lại làm gợi ý nếu thuộc chủ đề đang chọn
 }
 function buildChips(){
-  const chips = $("#chips"); chips.innerHTML = ""; selected.clear();
-  allSources().forEach(h => { chips.appendChild(makeChip(h)); selected.add(h); });
-  updateRestoreLink();
+  selected.clear(); suggestKnown = new Set();
+  buildTopicChips();
+  buildMyChips();
+  buildSuggestChips();
   status.textContent = "Chọn nguồn rồi bấm “Tải tin đã chọn”.";
 }
 function addSource(){
@@ -597,19 +688,14 @@ function addSource(){
   if(!/^[A-Za-z0-9_]{1,30}$/.test(h)){
     status.textContent = "Tên kênh không hợp lệ (chỉ chữ, số, _ ; tối đa 30 ký tự)."; return;
   }
-  if(isBuiltin(h)){   // nguồn gốc: nếu đang ẩn thì hiện lại, không tạo bản trùng
-    if(isHidden(h)){
-      saveHidden(getHidden().filter(x => lc(x) !== lc(h))); pushSourcesToServer(); buildChips();
-      inp.value = ""; status.textContent = `Đã hiện lại @${h}.`; return;
-    }
-    status.textContent = `@${h} đã có trong danh sách.`; inp.value = ""; return;
+  if(getMySources().some(x => lc(x) === lc(h))){
+    status.textContent = `@${h} đã có trong Nguồn của tôi.`; inp.value = ""; return;
   }
-  if(getCustom().some(x => lc(x) === lc(h))){
-    status.textContent = `@${h} đã có trong danh sách.`; inp.value = ""; return;
-  }
-  saveCustom([...getCustom(), h]); pushSourcesToServer();
-  $("#chips").appendChild(makeChip(h)); selected.add(h);
-  inp.value = ""; status.textContent = `Đã thêm @${h}. Bấm “Tải tin đã chọn” để kéo.`;
+  saveMySources([...getMySources(), h]); pushSourcesToServer();
+  selected.add(h);
+  $("#myChips").appendChild(makeSourceChip(h, true, removeMySource));
+  buildSuggestChips();   // nếu kênh này đang là gợi ý thì bỏ khỏi vùng gợi ý (tránh trùng)
+  inp.value = ""; status.textContent = `Đã thêm @${h} vào Nguồn của tôi. Bấm “Tải tin đã chọn” để kéo.`;
 }
 // ----- Khoảng thời gian kéo tin gần nhất (6/12/24h, mặc định 24h) -----
 // (WINKEY khai báo gần đầu khối tin tức vì getWinHours được gọi ngay lúc tải để đặt giá trị select)
