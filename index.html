@@ -281,7 +281,7 @@
 <!-- Cột trái: ghim full bài đang đọc (chỉ hiện trên màn rộng) -->
 <aside class="side" id="pinPanel" aria-label="Bài gốc đang đọc">
   <div class="side-h">📌 Bài gốc đang đọc</div>
-  <div id="pinBody" class="pin-empty">Kéo tin về rồi cuộn đọc — cột này luôn hiện full bài bạn đang đọc, để vừa đọc bản dịch từng câu vừa nhìn lại cả bài.</div>
+  <div id="pinBody" class="pin-empty">Kéo tin về rồi trỏ chuột vào một ô tin — cột này sẽ hiện full bài đó, để vừa đọc bản dịch từng câu vừa nhìn lại cả bài.</div>
 </aside>
 
 <!-- Cột phải: tra phát âm US / UK (kiểu từ điển Cambridge) -->
@@ -687,7 +687,7 @@ function makeCard(handle, time, text){
   const cstatus = card.querySelector(".cstatus");
   const result = card.querySelector(".card-result");
   const btns = card.querySelectorAll(".btn-translate");
-  card._tw = { handle, time, text };   // cột trái tự lấy bài này khi bạn cuộn đến
+  card._tw = { handle, time, text };   // cột trái lấy bài này khi bạn trỏ chuột vào
   // Nếu tweet này đã dịch trong ngày → hiện ngay từ bộ nhớ, không gọi LLM.
   const cachedTr = getCachedTr(text);
   if(cachedTr){
@@ -857,9 +857,9 @@ function renderQuiz(questions){
   });
 }
 
-/* ---------- CỘT TRÁI: tự hiện full bài bạn đang đọc ----------
-   Không cần chọn tin nào. Khi cuộn, cột trái luôn bám tin đang ở vùng đọc
-   (gần đầu khung nhìn), kèm thanh cuộn riêng nếu bài dài. */
+/* ---------- CỘT TRÁI: hiện full bài bạn đang trỏ chuột vào ----------
+   Trỏ chuột vào ô tin nào thì cột trái hiện full bài đó (kèm thanh cuộn riêng
+   nếu bài dài). Rời chuột ra ngoài thì giữ nguyên bài cuối cùng đã trỏ. */
 let activeCard = null;
 function pinTweet(handle, time, text){
   const b = $("#pinBody"); if(!b) return;
@@ -871,32 +871,24 @@ function resetPinEmpty(){
   const b = $("#pinBody"); if(!b) return;
   activeCard = null;
   b.classList.add("pin-empty");
-  b.innerHTML = "Kéo tin về rồi cuộn đọc — cột này luôn hiện full bài bạn đang đọc.";
+  b.innerHTML = "Kéo tin về rồi trỏ chuột vào một ô tin — cột này sẽ hiện full bài đó.";
+}
+function pinCard(card){
+  if(!card || card === activeCard) return;
+  activeCard = card;
+  const t = card._tw; if(t) pinTweet(t.handle, t.time, t.text);
 }
 function updatePin(){
   if(!document.body.classList.contains("tab-news")) return;   // chỉ chạy ở tab tin tức
   const cards = [...document.querySelectorAll("#cards .card")];
   if(!cards.length){ resetPinEmpty(); return; }
-  const anchor = Math.min(160, window.innerHeight * 0.28);     // "vạch đọc" gần đầu khung nhìn
-  let best = cards[0], bestD = Infinity;
-  for(const c of cards){
-    const r = c.getBoundingClientRect();
-    if(r.top <= anchor && r.bottom > anchor){ best = c; break; }   // bài đang phủ vạch đọc
-    const d = r.top > anchor ? r.top - anchor : anchor - r.bottom; // nếu không, lấy bài gần nhất
-    if(d < bestD){ bestD = d; best = c; }
-  }
-  if(best && best !== activeCard){
-    activeCard = best;
-    const t = best._tw; if(t) pinTweet(t.handle, t.time, t.text);
-  }
+  if(!activeCard || !document.body.contains(activeCard)) pinCard(cards[0]);  // mặc định: bài đầu, rồi giữ nguyên
 }
-let pinRAF = false;
-function onScrollPin(){
-  if(pinRAF) return; pinRAF = true;
-  requestAnimationFrame(() => { pinRAF = false; updatePin(); });
-}
-window.addEventListener("scroll", onScrollPin, { passive:true });
-window.addEventListener("resize", onScrollPin);
+// Trỏ chuột vào bài nào thì cột trái hiện bài đó; rời chuột thì giữ nguyên bài cuối.
+$("#cards").addEventListener("mouseover", e => {
+  const card = e.target.closest(".card");
+  if(card) pinCard(card);
+});
 
 /* ---------- CỘT PHẢI: tra phát âm US / UK (kiểu từ điển Cambridge) ----------
    Cambridge chặn nhúng iframe + chặn bot nên không kéo audio thật được. Thay vào đó,
