@@ -64,6 +64,7 @@
   .chip .rm{margin-left:.15rem;font-weight:700;opacity:.55;padding:0 .15rem;border-radius:4px}
   .chip.topic{font-weight:600}
   .chip.topic.on{background:var(--red);border-color:var(--red);color:#fff}
+  .chip.topic.mine.on{background:var(--ink);border-color:var(--ink);color:var(--paper)}
   #suggestChips:empty{display:none}#topicChips{margin-bottom:1rem}
   .chip .rm:hover{opacity:1;color:var(--red);background:rgba(0,0,0,.08)}
   .add-src{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin-bottom:1rem}
@@ -219,27 +220,29 @@
   <section class="view active" id="view-news">
     <div class="panel">
       <div class="src-label">
-        <span>1 · Chọn chủ đề bạn quan tâm</span>
+        <span>Bấm vào một mục để mở, rồi tích các nguồn muốn tải</span>
       </div>
       <div class="chips" id="topicChips"></div>
 
       <div class="src-label" id="suggestLabel" style="display:none">
-        <span>2 · Nguồn đọc nhiều theo chủ đề (đã thêm sẵn cho bạn)</span>
+        <span>Nguồn theo chủ đề đã mở</span>
         <span class="mini" id="suggSelAll">Chọn tất cả</span>
         <span class="mini" id="suggSelNone">Bỏ chọn</span>
       </div>
       <div class="chips" id="suggestChips"></div>
 
-      <div class="src-label">
-        <span>📌 Nguồn của tôi</span>
-        <span class="mini" id="mySelAll">Chọn tất cả</span>
-        <span class="mini" id="mySelNone">Bỏ chọn</span>
-      </div>
-      <div class="chips" id="myChips"></div>
-      <div class="add-src">
-        <input id="newSource" type="text" maxlength="120" autocomplete="off"
-               placeholder="Thêm vào Nguồn của tôi: dán @handle hoặc link x.com/handle (vd: ihtesham2005)">
-        <button class="mini" id="addSource">+ Thêm nguồn</button>
+      <div id="mySection" style="display:none">
+        <div class="src-label">
+          <span>📌 Nguồn của tôi</span>
+          <span class="mini" id="mySelAll">Chọn tất cả</span>
+          <span class="mini" id="mySelNone">Bỏ chọn</span>
+        </div>
+        <div class="chips" id="myChips"></div>
+        <div class="add-src">
+          <input id="newSource" type="text" maxlength="120" autocomplete="off"
+                 placeholder="Thêm vào Nguồn của tôi: dán @handle hoặc link x.com/handle (vd: ihtesham2005)">
+          <button class="mini" id="addSource">+ Thêm nguồn</button>
+        </div>
       </div>
       <div style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
         <button class="btn-go" id="load">Tải tin đã chọn</button>
@@ -606,7 +609,8 @@ function parseHandle(raw){
   if(m) s = m[1]; else s = s.replace(/^@/, "").trim();
   return s;
 }
-// Chip nguồn dùng chung cho cả 2 vùng. on=tích sẵn; onRemove có thì hiện nút × để xóa.
+const MINE = "mine";   // id của "mục" Nguồn của tôi trong hàng mục (lưu chung với topics)
+// Chip nguồn dùng chung cho cả 2 vùng. KHÔNG tích sẵn — người dùng tự tick nguồn muốn tải.
 function makeSourceChip(h, on, onRemove){
   const chip = document.createElement("div");
   chip.className = "chip" + (on ? " on" : ""); chip.dataset.handle = h;
@@ -619,68 +623,76 @@ function makeSourceChip(h, on, onRemove){
   if(onRemove) chip.querySelector(".rm").addEventListener("click", e => { e.stopPropagation(); onRemove(h, chip); });
   return chip;
 }
-// Chủ đề (bước 1): bật/tắt → hiện/ẩn các nguồn gợi ý của chủ đề đó.
+function unselectByKey(k){ for(const h of selected) if(lc(h) === k) selected.delete(h); }
+// Hàng MỤC: các chủ đề + "📌 Nguồn của tôi". Bấm để MỞ/ĐÓNG mục (không tự tick nguồn nào).
 function buildTopicChips(){
   const box = $("#topicChips"); box.innerHTML = "";
-  const sel = new Set(getTopics());
-  TOPICS.forEach(t => {
+  const open = new Set(getTopics());
+  const cats = [...TOPICS, { id: MINE, label: "📌 Nguồn của tôi" }];
+  cats.forEach(t => {
     const chip = document.createElement("div");
-    chip.className = "chip topic" + (sel.has(t.id) ? " on" : ""); chip.dataset.topic = t.id;
+    chip.className = "chip topic" + (open.has(t.id) ? " on" : "") + (t.id === MINE ? " mine" : "");
+    chip.dataset.topic = t.id;
     chip.innerHTML = `<span class="tick">✓</span>${esc(t.label)}`;
     chip.addEventListener("click", () => {
       const on = chip.classList.toggle("on");
       const cur = new Set(getTopics());
       if(on) cur.add(t.id); else cur.delete(t.id);
-      saveTopics([...cur]); pushSourcesToServer(); buildSuggestChips();
+      saveTopics([...cur]); pushSourcesToServer(); refreshSources();
     });
     box.appendChild(chip);
   });
 }
-// Nguồn gợi ý (bước 2): hợp các kênh của những chủ đề đang chọn, bỏ kênh đã có trong Nguồn của tôi.
-// Kênh mới xuất hiện được tích sẵn; kênh đã từng hiện thì giữ trạng thái tích của người dùng.
-let suggestKnown = new Set();
+// Tập key các nguồn ĐANG hiển thị (dựa trên những mục đang mở) — để dọn lựa chọn bị ẩn đi.
+function visibleKeys(){
+  const open = new Set(getTopics());
+  const mine = new Set(getMySources().map(lc));
+  const keys = new Set();
+  if(open.has(MINE)) mine.forEach(k => keys.add(k));
+  open.forEach(tid => { const t = TOPICS.find(x => x.id === tid); if(!t) return; t.sources.forEach(h => { if(!mine.has(lc(h))) keys.add(lc(h)); }); });
+  return keys;
+}
+// Nguồn theo chủ đề đang mở: hợp các kênh của những chủ đề đang mở, bỏ kênh đã có trong Nguồn của tôi.
 function buildSuggestChips(){
   const box = $("#suggestChips");
   const mine = new Set(getMySources().map(lc));
   const seen = new Set(), visible = [];
   getTopics().forEach(tid => {
+    if(tid === MINE) return;
     const t = TOPICS.find(x => x.id === tid); if(!t) return;
     t.sources.forEach(h => { const k = lc(h); if(!seen.has(k) && !mine.has(k)){ seen.add(k); visible.push(h); } });
   });
-  const visSet = new Set(visible.map(lc));
-  // bỏ khỏi danh sách tải những kênh gợi ý không còn hiển thị (do tắt chủ đề / đã thêm vào Nguồn của tôi)
-  [...selected].forEach(h => { const k = lc(h); if(suggestKnown.has(k) && !visSet.has(k) && !mine.has(k)) selected.delete(h); });
   box.innerHTML = "";
-  visible.forEach(h => {
-    const k = lc(h);
-    let on;
-    if(!suggestKnown.has(k)){ on = true; suggestKnown.add(k); }   // mới hiện → tích sẵn cho bạn
-    else on = selected.has(h);
-    if(on) selected.add(h);
-    box.appendChild(makeSourceChip(h, on, null));
-  });
-  $("#suggestLabel").style.display = getTopics().length ? "" : "none";
+  visible.forEach(h => box.appendChild(makeSourceChip(h, selected.has(h), null)));   // tick theo lựa chọn hiện có
+  $("#suggestLabel").style.display = visible.length ? "" : "none";
 }
-// Nguồn của tôi: thêm/xóa thoải mái, tích sẵn để tải.
+// Nguồn của tôi: chỉ hiện khi mở mục; thêm/xóa thoải mái; KHÔNG tự tick.
 function buildMyChips(){
+  const open = new Set(getTopics());
+  const section = $("#mySection");
+  if(!open.has(MINE)){ section.style.display = "none"; $("#myChips").innerHTML = ""; return; }
+  section.style.display = "";
   const box = $("#myChips"); box.innerHTML = "";
-  getMySources().forEach(h => {
-    selected.add(h);
-    box.appendChild(makeSourceChip(h, true, removeMySource));
-  });
+  getMySources().forEach(h => box.appendChild(makeSourceChip(h, selected.has(h), removeMySource)));
+}
+// Dựng lại 2 vùng nguồn + bỏ chọn những nguồn không còn hiển thị (do đóng mục).
+function refreshSources(){
+  const vis = visibleKeys();
+  for(const h of [...selected]) if(!vis.has(lc(h))) selected.delete(h);
+  buildSuggestChips();
+  buildMyChips();
 }
 function removeMySource(h, chip){
   saveMySources(getMySources().filter(x => lc(x) !== lc(h)));
-  selected.delete(h); chip.remove();
+  unselectByKey(lc(h));
   pushSourcesToServer();
-  buildSuggestChips();   // kênh vừa xóa có thể quay lại làm gợi ý nếu thuộc chủ đề đang chọn
+  refreshSources();   // kênh vừa xóa có thể quay lại làm gợi ý nếu thuộc chủ đề đang mở
 }
 function buildChips(){
-  selected.clear(); suggestKnown = new Set();
+  selected.clear();
   buildTopicChips();
-  buildMyChips();
-  buildSuggestChips();
-  status.textContent = "Chọn nguồn rồi bấm “Tải tin đã chọn”.";
+  refreshSources();
+  status.textContent = "Bấm một mục để mở, rồi tích các nguồn muốn tải.";
 }
 function addSource(){
   const inp = $("#newSource");
@@ -691,11 +703,11 @@ function addSource(){
   if(getMySources().some(x => lc(x) === lc(h))){
     status.textContent = `@${h} đã có trong Nguồn của tôi.`; inp.value = ""; return;
   }
-  saveMySources([...getMySources(), h]); pushSourcesToServer();
-  selected.add(h);
-  $("#myChips").appendChild(makeSourceChip(h, true, removeMySource));
-  buildSuggestChips();   // nếu kênh này đang là gợi ý thì bỏ khỏi vùng gợi ý (tránh trùng)
-  inp.value = ""; status.textContent = `Đã thêm @${h} vào Nguồn của tôi. Bấm “Tải tin đã chọn” để kéo.`;
+  saveMySources([...getMySources(), h]);
+  const cur = new Set(getTopics()); cur.add(MINE); saveTopics([...cur]);   // mở mục để thấy ngay
+  pushSourcesToServer();
+  buildTopicChips(); refreshSources();
+  inp.value = ""; status.textContent = `Đã thêm @${h} vào Nguồn của tôi. Tích chọn rồi bấm “Tải tin đã chọn”.`;
 }
 // ----- Khoảng thời gian kéo tin gần nhất (6/12/24h, mặc định 24h) -----
 // (WINKEY khai báo gần đầu khối tin tức vì getWinHours được gọi ngay lúc tải để đặt giá trị select)
