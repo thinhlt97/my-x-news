@@ -65,7 +65,11 @@
   .chip.topic{font-weight:600}
   .chip.topic.on{background:var(--red);border-color:var(--red);color:#fff}
   .chip.topic.mine.on{background:var(--ink);border-color:var(--ink);color:var(--paper)}
-  #suggestChips:empty{display:none}#topicChips{margin-bottom:1rem}
+  #catSources:empty,#selectedSources:empty{display:none}#topicChips{margin-bottom:1rem}
+  #selectedSources .chip{background:#2f6b3a;border-color:#2f6b3a;color:#fff}
+  #selectedSources .chip:hover{background:#244f2c}
+  .srctip{position:fixed;z-index:200;background:var(--ink);color:var(--paper);padding:.4rem .6rem;border-radius:6px;
+    font-size:.78rem;line-height:1.45;max-width:240px;box-shadow:var(--shadow);pointer-events:none;display:none}
   .chip .rm:hover{opacity:1;color:var(--red);background:rgba(0,0,0,.08)}
   .add-src{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin-bottom:1rem}
   .add-src input{flex:1;min-width:14rem;padding:.45rem .7rem;border:1px solid var(--rule-strong);
@@ -220,30 +224,27 @@
   <section class="view active" id="view-news">
     <div class="panel">
       <div class="src-label">
-        <span>Bấm vào một mục để mở, rồi tích các nguồn muốn tải</span>
+        <span>Bấm một danh mục để xem nguồn (trỏ chuột vào nguồn để xem giới thiệu)</span>
       </div>
       <div class="chips" id="topicChips"></div>
 
-      <div class="src-label" id="suggestLabel" style="display:none">
-        <span>Nguồn theo chủ đề đã mở</span>
-        <span class="mini" id="suggSelAll">Chọn tất cả</span>
-        <span class="mini" id="suggSelNone">Bỏ chọn</span>
+      <div class="src-label" id="catLabel" style="display:none">
+        <span id="catTitle"></span>
+        <span class="mini" id="catSelAll">Chọn tất cả</span>
+        <span class="mini" id="catSelNone">Bỏ chọn</span>
       </div>
-      <div class="chips" id="suggestChips"></div>
+      <div class="chips" id="catSources"></div>
+      <div class="add-src" id="addSrcWrap" style="display:none">
+        <input id="newSource" type="text" maxlength="120" autocomplete="off"
+               placeholder="Thêm vào Nguồn của tôi: dán @handle hoặc link x.com/handle (vd: ihtesham2005)">
+        <button class="mini" id="addSource">+ Thêm nguồn</button>
+      </div>
 
-      <div id="mySection" style="display:none">
-        <div class="src-label">
-          <span>📌 Nguồn của tôi</span>
-          <span class="mini" id="mySelAll">Chọn tất cả</span>
-          <span class="mini" id="mySelNone">Bỏ chọn</span>
-        </div>
-        <div class="chips" id="myChips"></div>
-        <div class="add-src">
-          <input id="newSource" type="text" maxlength="120" autocomplete="off"
-                 placeholder="Thêm vào Nguồn của tôi: dán @handle hoặc link x.com/handle (vd: ihtesham2005)">
-          <button class="mini" id="addSource">+ Thêm nguồn</button>
-        </div>
+      <div class="src-label" id="selLabel" style="display:none">
+        <span>✓ Nguồn đã chọn để tải (<span id="selCount">0</span>) — bấm để bỏ chọn</span>
+        <span class="mini" id="clearSel">Bỏ chọn hết</span>
       </div>
+      <div class="chips" id="selectedSources"></div>
       <div style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
         <button class="btn-go" id="load">Tải tin đã chọn</button>
         <button class="mini" id="reload" title="Bỏ qua bộ nhớ, gọi API kéo tin mới nhất">↻ Kéo mới</button>
@@ -322,17 +323,72 @@ const pLabel = p => PROVIDER_LABEL[p] || p;
 // digest.json không còn dùng — giờ kéo tin theo yêu cầu qua proxy.
 // "Nguồn của tôi" mặc định lần đầu (lấy phần sau x.com/, không có @). Người dùng thêm/xóa thoải mái.
 const SOURCES = ["David_Ornstein","JamesPearceLFC","EBL2017","_pauljoyce","FabrizioRomano","BBCSport","TheAthleticFC","nytimes","WSJ"];
-// THƯ VIỆN CHỦ ĐỀ: mỗi chủ đề kèm vài kênh X được đọc nhiều. Chọn chủ đề → các kênh này
-// hiện ra và được tích sẵn (bỏ tích kênh nào không muốn). Sửa/thêm chủ đề & kênh ngay tại đây.
+// THƯ VIỆN DANH MỤC: mỗi danh mục có 5-7 kênh X được đọc nhiều. Chọn danh mục → các kênh
+// hiện ra để tích. Sửa/thêm danh mục & kênh ngay tại đây.
 const TOPICS = [
-  { id:"football",      label:"⚽ Bóng đá",   sources:["FabrizioRomano","David_Ornstein","JamesPearceLFC","_pauljoyce","OptaJoe","brfootball"] },
-  { id:"sport",         label:"🏟️ Thể thao",  sources:["BBCSport","SkySportsNews","ESPN","TheAthletic","WhoScored"] },
-  { id:"news",          label:"📰 Tin tức",    sources:["BBCBreaking","Reuters","AP","CNN","SkyNews","BBCWorld"] },
-  { id:"tech",          label:"💻 Công nghệ",  sources:["TechCrunch","verge","WIRED","engadget","arstechnica","TheRegister"] },
-  { id:"entertainment", label:"🎬 Giải trí",   sources:["Variety","THR","EW","RottenTomatoes","IGN"] },
-  { id:"business",      label:"💼 Kinh doanh", sources:["WSJ","FinancialTimes","business","Forbes","TheEconomist"] },
-  { id:"science",       label:"🔬 Khoa học",   sources:["NASA","ScienceMagazine","newscientist","NatGeo"] },
+  { id:"football",      label:"⚽ Bóng đá",   sources:["FabrizioRomano","David_Ornstein","JamesPearceLFC","_pauljoyce","OptaJoe","brfootball","SkySportsPL"] },
+  { id:"sport",         label:"🏟️ Thể thao",  sources:["BBCSport","SkySportsNews","ESPN","TheAthletic","WhoScored","Eurosport","433"] },
+  { id:"news",          label:"📰 Tin tức",    sources:["BBCBreaking","Reuters","AP","CNN","SkyNews","BBCWorld","AJEnglish"] },
+  { id:"tech",          label:"💻 Công nghệ",  sources:["TechCrunch","verge","WIRED","engadget","arstechnica","TheRegister","MKBHD"] },
+  { id:"entertainment", label:"🎬 Giải trí",   sources:["Variety","THR","EW","RottenTomatoes","IGN","Billboard","Deadline"] },
+  { id:"business",      label:"💼 Kinh doanh", sources:["WSJ","FinancialTimes","business","Forbes","TheEconomist","CNBC","YahooFinance"] },
+  { id:"science",       label:"🔬 Khoa học",   sources:["NASA","ScienceMagazine","newscientist","NatGeo","nature","sciam","physorg"] },
 ];
+// Giới thiệu ngắn từng kênh (hiện khi trỏ chuột vào). Khóa viết thường để tra cứu.
+const SOURCE_INFO = {
+  fabrizioromano:"Nhà báo chuyển nhượng số 1, nổi tiếng câu “Here we go!”.",
+  david_ornstein:"Phóng viên The Athletic, tin chuyển nhượng cực uy tín.",
+  jamespearcelfc:"Cây bút The Athletic chuyên về Liverpool.",
+  _pauljoyce:"Nhà báo The Times theo sát Liverpool.",
+  optajoe:"Tài khoản số liệu & thống kê bóng đá của Opta.",
+  brfootball:"Nhánh bóng đá của Bleacher Report (Mỹ).",
+  skysportspl:"Kênh Premier League chính thức của Sky Sports.",
+  bbcsport:"Trang thể thao của đài BBC (Anh).",
+  skysportsnews:"Tin thể thao 24/7 của Sky.",
+  espn:"Hãng thể thao lớn nhất nước Mỹ.",
+  theathletic:"Báo thể thao chuyên sâu (thuộc New York Times).",
+  whoscored:"Chấm điểm cầu thủ & thống kê trận đấu.",
+  eurosport:"Tin thể thao đa môn của châu Âu.",
+  "433":"Tài khoản bóng đá giải trí đông người theo dõi nhất.",
+  bbcbreaking:"Tin nóng toàn cầu của BBC.",
+  reuters:"Hãng thông tấn quốc tế Reuters.",
+  ap:"Associated Press — hãng tin hàng đầu của Mỹ.",
+  cnn:"Kênh tin tức truyền hình Mỹ.",
+  skynews:"Tin tức Anh của Sky.",
+  bbcworld:"Tin thế giới của BBC.",
+  ajenglish:"Al Jazeera English — góc nhìn từ Trung Đông.",
+  techcrunch:"Tin khởi nghiệp & công nghệ.",
+  verge:"The Verge — công nghệ, khoa học, văn hóa số.",
+  wired:"WIRED — tạp chí công nghệ & tương lai.",
+  engadget:"Tin sản phẩm & gadget.",
+  arstechnica:"Công nghệ chuyên sâu, phân tích kỹ thuật.",
+  theregister:"Tin IT/doanh nghiệp, giọng hài hước (Anh).",
+  mkbhd:"Marques Brownlee — reviewer công nghệ nổi tiếng.",
+  variety:"Tạp chí giải trí hàng đầu Hollywood.",
+  thr:"The Hollywood Reporter.",
+  ew:"Entertainment Weekly.",
+  rottentomatoes:"Đánh giá phim & điểm “cà chua”.",
+  ign:"Tin game, phim và văn hóa đại chúng.",
+  billboard:"Bảng xếp hạng & tin âm nhạc.",
+  deadline:"Tin hậu trường & thương vụ Hollywood.",
+  wsj:"The Wall Street Journal — báo kinh tế Mỹ.",
+  financialtimes:"Financial Times (Anh).",
+  business:"Bloomberg — tin tài chính & thị trường.",
+  forbes:"Tạp chí kinh doanh & xếp hạng tỷ phú.",
+  theeconomist:"The Economist — phân tích kinh tế toàn cầu.",
+  cnbc:"Kênh tài chính & chứng khoán Mỹ.",
+  yahoofinance:"Tin tài chính & chứng khoán của Yahoo.",
+  nasa:"Cơ quan Hàng không Vũ trụ Mỹ.",
+  sciencemagazine:"Tạp chí Science (AAAS).",
+  newscientist:"New Scientist (Anh).",
+  natgeo:"National Geographic.",
+  nature:"Tạp chí khoa học Nature.",
+  sciam:"Scientific American.",
+  physorg:"Phys.org — tin nghiên cứu khoa học.",
+  ebl2017:"Tài khoản tổng hợp tin chuyển nhượng bóng đá.",
+  theathleticfc:"Nhánh bóng đá của The Athletic.",
+  nytimes:"The New York Times.",
+};
 // Worker lưu từ vựng dùng chung giữa các thiết bị (sửa thành URL vocab-worker của bạn):
 const VOCAB_URL = "https://vocab-worker.thinhlt1069-xnews.workers.dev";
 const VKEY = "touchline_vocab";       // lưu tạm trong trình duyệt
@@ -412,19 +468,18 @@ function pushNewsToServer(){
   }).catch(()=>{});
 }
 
-/* ---------- Đồng bộ danh sách NGUỒN (Nguồn của tôi + chủ đề đã chọn) qua mã cá nhân ---------- */
-// Chuẩn hóa dữ liệu server thành { mySources, topics }. Chấp nhận các định dạng cũ:
+/* ---------- Đồng bộ "Nguồn của tôi" qua mã cá nhân (danh mục mở chỉ là trạng thái cục bộ) ---------- */
+// Chuẩn hóa dữ liệu server thành { mySources }. Chấp nhận các định dạng cũ:
 //   - mảng (chỉ custom cũ)            -> mySources = SOURCES + mảng đó
 //   - object { custom, hidden }       -> mySources = (SOURCES bỏ hidden) + custom
-//   - object { mySources, topics }    -> dùng nguyên (định dạng mới)
+//   - object { mySources[, topics] }  -> lấy mySources (topics cũ bỏ qua)
 function normalizeSources(s){
-  if(Array.isArray(s)) return { mySources: dedup([...SOURCES, ...s]), topics: [] };
+  if(Array.isArray(s)) return { mySources: dedup([...SOURCES, ...s]) };
   if(s && typeof s === "object"){
-    if(Array.isArray(s.mySources) || Array.isArray(s.topics))
-      return { mySources: Array.isArray(s.mySources) ? s.mySources : [], topics: Array.isArray(s.topics) ? s.topics : [] };
+    if(Array.isArray(s.mySources)) return { mySources: s.mySources };
     if(Array.isArray(s.custom) || Array.isArray(s.hidden)){
       const hid = new Set((s.hidden||[]).map(lc));
-      return { mySources: dedup([...SOURCES.filter(h => !hid.has(lc(h))), ...(s.custom||[])]), topics: [] };
+      return { mySources: dedup([...SOURCES.filter(h => !hid.has(lc(h))), ...(s.custom||[])]) };
     }
   }
   return null;
@@ -435,14 +490,14 @@ async function pullSourcesFromServer(){
     const r = await fetch(VOCAB_URL + "?code=" + encodeURIComponent(personalCode) + "&kind=sources");
     const d = await r.json();
     const s = normalizeSources(d.sources);
-    if(s){ saveMySources(s.mySources); saveTopics(s.topics); }   // server là nguồn sự thật khi mở máy
+    if(s){ saveMySources(s.mySources); }   // server là nguồn sự thật khi mở máy
   }catch(e){}
 }
 function pushSourcesToServer(){
   if(!personalCode) return;
   fetch(VOCAB_URL + "?code=" + encodeURIComponent(personalCode) + "&kind=sources", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ sources: { mySources: getMySources(), topics: getTopics() } })
+    body: JSON.stringify({ sources: { mySources: getMySources() } })
   }).catch(()=>{});
 }
 
@@ -486,13 +541,12 @@ async function connectCode(code){
   localMirror(); updateBadge();
   await pushVocab();
   renderVocab();
-  // Nguồn của tôi + chủ đề: gộp server + local (lần đầu không mất thay đổi trên máy này) rồi đẩy lên.
+  // Nguồn của tôi: gộp server + local (lần đầu không mất thay đổi trên máy này) rồi đẩy lên.
   try{
     const rs = await fetch(VOCAB_URL + "?code=" + encodeURIComponent(code) + "&kind=sources");
     const ds = await rs.json();
-    const srv = normalizeSources(ds.sources) || { mySources: [], topics: [] };
+    const srv = normalizeSources(ds.sources) || { mySources: [] };
     saveMySources(dedup([...srv.mySources, ...getMySources()]));
-    saveTopics(dedup([...srv.topics, ...getTopics()]));
     pushSourcesToServer(); buildChips();
   }catch(e){}
 }
@@ -562,10 +616,9 @@ const status = $("#status");
 const selected = new Set();
 const WINKEY = "touchline_window_hours";   // khóa lưu khoảng thời gian; dùng ngay ở dòng đặt giá trị #winSel bên dưới
 
-$("#suggSelAll").addEventListener("click", () => setAll(true, "#suggestChips"));
-$("#suggSelNone").addEventListener("click", () => setAll(false, "#suggestChips"));
-$("#mySelAll").addEventListener("click", () => setAll(true, "#myChips"));
-$("#mySelNone").addEventListener("click", () => setAll(false, "#myChips"));
+$("#catSelAll").addEventListener("click", () => selectAllInCategory(true));
+$("#catSelNone").addEventListener("click", () => selectAllInCategory(false));
+$("#clearSel").addEventListener("click", () => { selected.clear(); renderCategory(); renderSelected(); });
 $("#load").addEventListener("click", () => loadSelected(false));
 $("#reload").addEventListener("click", () => loadSelected(true));
 $("#addSource").addEventListener("click", addSource);
@@ -573,18 +626,11 @@ $("#newSource").addEventListener("keydown", e => { if(e.key === "Enter"){ e.prev
 $("#winSel").value = String(getWinHours());
 $("#winSel").addEventListener("change", e => { setWinHours(parseInt(e.target.value, 10) || 24); loadSelected(false); });
 
-// Tích/bỏ tích toàn bộ chip trong một vùng (suggest hoặc my).
-function setAll(on, sel){
-  document.querySelectorAll(sel + " .chip").forEach(c => {
-    c.classList.toggle("on", on);
-    const h = c.dataset.handle;
-    if(on) selected.add(h); else selected.delete(h);
-  });
-}
-
-// ----- Quản lý nguồn: chủ đề đã chọn (topics) + Nguồn của tôi (mySources) -----
-const MYKEY    = "touchline_my_sources";   // Nguồn của tôi (thêm/xóa thoải mái)
-const TOPICKEY = "touchline_topics";       // các chủ đề đang chọn
+// ----- Quản lý nguồn: 1 danh mục mở tại 1 thời điểm + Nguồn của tôi (mySources) -----
+const MYKEY  = "touchline_my_sources";   // Nguồn của tôi (thêm/xóa thoải mái, đồng bộ qua mã)
+const OPENKEY = "touchline_open_cat";    // danh mục đang mở (chỉ cục bộ, không đồng bộ)
+const MINE = "mine";                     // id của danh mục "📌 Nguồn của tôi"
+let openCat = null;                      // id danh mục đang mở (null = chưa mở)
 const lc = s => (s || "").toLowerCase();
 const dedup = arr => { const seen = new Set(), out = []; arr.forEach(h => { const k = lc(h); if(h && !seen.has(k)){ seen.add(k); out.push(h); } }); return out; };
 // Nguồn của tôi: lần đầu seed từ SOURCES (hoặc di trú từ khóa cũ custom/hidden).
@@ -600,8 +646,8 @@ function getMySources(){
   return seeded;
 }
 function saveMySources(arr){ try{ localStorage.setItem(MYKEY, JSON.stringify(dedup(arr))); }catch(e){} }
-function getTopics(){ try{ const a = JSON.parse(localStorage.getItem(TOPICKEY)); return Array.isArray(a) ? a : []; }catch(e){ return []; } }
-function saveTopics(arr){ try{ localStorage.setItem(TOPICKEY, JSON.stringify([...new Set(arr)])); }catch(e){} }
+function saveOpen(){ try{ if(openCat) localStorage.setItem(OPENKEY, openCat); else localStorage.removeItem(OPENKEY); }catch(e){} }
+function loadOpen(){ const v = localStorage.getItem(OPENKEY); return (v === MINE || TOPICS.some(t => t.id === v)) ? v : null; }
 // Lấy handle sạch từ input: chấp nhận "@handle", "handle", hoặc link x.com/twitter.com/handle.
 function parseHandle(raw){
   let s = (raw || "").trim();
@@ -609,90 +655,99 @@ function parseHandle(raw){
   if(m) s = m[1]; else s = s.replace(/^@/, "").trim();
   return s;
 }
-const MINE = "mine";   // id của "mục" Nguồn của tôi trong hàng mục (lưu chung với topics)
-// Chip nguồn dùng chung cho cả 2 vùng. KHÔNG tích sẵn — người dùng tự tick nguồn muốn tải.
-function makeSourceChip(h, on, onRemove){
+const isSel = h => { for(const x of selected) if(lc(x) === lc(h)) return true; return false; };
+function unselectByKey(k){ for(const h of selected) if(lc(h) === k) selected.delete(h); }
+function srcInfo(h){ return SOURCE_INFO[lc(h)] || ("@" + h + " — một kênh trên X."); }
+
+// ----- Tooltip giới thiệu nguồn (hiện khi trỏ chuột vào chip nguồn) -----
+let tipEl = null;
+function showTip(target, text){
+  if(!tipEl){ tipEl = document.createElement("div"); tipEl.className = "srctip"; document.body.appendChild(tipEl); }
+  tipEl.textContent = text; tipEl.style.display = "block";
+  const r = target.getBoundingClientRect();
+  const w = tipEl.offsetWidth || 240;
+  let left = r.left; if(left + w > window.innerWidth - 8) left = window.innerWidth - 8 - w;
+  tipEl.style.left = Math.max(8, left) + "px";
+  tipEl.style.top = (r.bottom + 6) + "px";
+}
+function hideTip(){ if(tipEl) tipEl.style.display = "none"; }
+
+// Chip nguồn: bấm để chọn/bỏ chọn; trỏ chuột để xem giới thiệu; có thể kèm nút × để xóa.
+function sourceChip(h, on, opts){
+  opts = opts || {};
   const chip = document.createElement("div");
   chip.className = "chip" + (on ? " on" : ""); chip.dataset.handle = h;
   chip.innerHTML = `<span class="tick">✓</span>@${esc(h)}`
-    + (onRemove ? `<span class="rm" title="Xóa khỏi Nguồn của tôi">×</span>` : "");
-  chip.addEventListener("click", () => {
-    const nowOn = chip.classList.toggle("on");
-    if(nowOn) selected.add(h); else selected.delete(h);
-  });
-  if(onRemove) chip.querySelector(".rm").addEventListener("click", e => { e.stopPropagation(); onRemove(h, chip); });
+    + (opts.onRemove ? `<span class="rm" title="Xóa khỏi Nguồn của tôi">×</span>` : "");
+  chip.addEventListener("click", () => { if(opts.onClick) opts.onClick(); });
+  chip.addEventListener("mouseenter", () => showTip(chip, srcInfo(h)));
+  chip.addEventListener("mouseleave", hideTip);
+  if(opts.onRemove) chip.querySelector(".rm").addEventListener("click", e => { e.stopPropagation(); hideTip(); opts.onRemove(); });
   return chip;
 }
-function unselectByKey(k){ for(const h of selected) if(lc(h) === k) selected.delete(h); }
-// Hàng MỤC: các chủ đề + "📌 Nguồn của tôi". Bấm để MỞ/ĐÓNG mục (không tự tick nguồn nào).
+function toggleSource(h){
+  if(isSel(h)) unselectByKey(lc(h)); else selected.add(h);
+  renderCategory(); renderSelected();
+}
+
+// Hàng DANH MỤC: các chủ đề + "📌 Nguồn của tôi". Bấm để MỞ danh mục (đóng danh mục khác).
 function buildTopicChips(){
   const box = $("#topicChips"); box.innerHTML = "";
-  const open = new Set(getTopics());
   const cats = [...TOPICS, { id: MINE, label: "📌 Nguồn của tôi" }];
   cats.forEach(t => {
     const chip = document.createElement("div");
-    chip.className = "chip topic" + (open.has(t.id) ? " on" : "") + (t.id === MINE ? " mine" : "");
+    chip.className = "chip topic" + (openCat === t.id ? " on" : "") + (t.id === MINE ? " mine" : "");
     chip.dataset.topic = t.id;
-    chip.innerHTML = `<span class="tick">✓</span>${esc(t.label)}`;
+    chip.innerHTML = `<span class="tick">▾</span>${esc(t.label)}`;
     chip.addEventListener("click", () => {
-      const on = chip.classList.toggle("on");
-      const cur = new Set(getTopics());
-      if(on) cur.add(t.id); else cur.delete(t.id);
-      saveTopics([...cur]); pushSourcesToServer(); refreshSources();
+      openCat = (openCat === t.id) ? null : t.id;   // bấm lại danh mục đang mở để đóng
+      saveOpen(); buildTopicChips(); renderCategory();
     });
     box.appendChild(chip);
   });
 }
-// Tập key các nguồn ĐANG hiển thị (dựa trên những mục đang mở) — để dọn lựa chọn bị ẩn đi.
-function visibleKeys(){
-  const open = new Set(getTopics());
-  const mine = new Set(getMySources().map(lc));
-  const keys = new Set();
-  if(open.has(MINE)) mine.forEach(k => keys.add(k));
-  open.forEach(tid => { const t = TOPICS.find(x => x.id === tid); if(!t) return; t.sources.forEach(h => { if(!mine.has(lc(h))) keys.add(lc(h)); }); });
-  return keys;
-}
-// Nguồn theo chủ đề đang mở: hợp các kênh của những chủ đề đang mở, bỏ kênh đã có trong Nguồn của tôi.
-function buildSuggestChips(){
-  const box = $("#suggestChips");
-  const mine = new Set(getMySources().map(lc));
-  const seen = new Set(), visible = [];
-  getTopics().forEach(tid => {
-    if(tid === MINE) return;
-    const t = TOPICS.find(x => x.id === tid); if(!t) return;
-    t.sources.forEach(h => { const k = lc(h); if(!seen.has(k) && !mine.has(k)){ seen.add(k); visible.push(h); } });
+function catSourcesOf(id){ return id === MINE ? getMySources() : ((TOPICS.find(t => t.id === id) || {}).sources || []); }
+// Vùng nguồn của danh mục đang mở (chỉ hiện nguồn của danh mục đó).
+function renderCategory(){
+  const box = $("#catSources"); box.innerHTML = "";
+  if(!openCat){ $("#catLabel").style.display = "none"; $("#addSrcWrap").style.display = "none"; return; }
+  const isMine = openCat === MINE;
+  const label = isMine ? "📌 Nguồn của tôi" : (TOPICS.find(t => t.id === openCat) || {}).label;
+  $("#catLabel").style.display = ""; $("#catTitle").textContent = label;
+  $("#addSrcWrap").style.display = isMine ? "" : "none";
+  catSourcesOf(openCat).forEach(h => {
+    box.appendChild(sourceChip(h, isSel(h), {
+      onClick: () => toggleSource(h),
+      onRemove: isMine ? () => removeMySource(h) : null
+    }));
   });
-  box.innerHTML = "";
-  visible.forEach(h => box.appendChild(makeSourceChip(h, selected.has(h), null)));   // tick theo lựa chọn hiện có
-  $("#suggestLabel").style.display = visible.length ? "" : "none";
 }
-// Nguồn của tôi: chỉ hiện khi mở mục; thêm/xóa thoải mái; KHÔNG tự tick.
-function buildMyChips(){
-  const open = new Set(getTopics());
-  const section = $("#mySection");
-  if(!open.has(MINE)){ section.style.display = "none"; $("#myChips").innerHTML = ""; return; }
-  section.style.display = "";
-  const box = $("#myChips"); box.innerHTML = "";
-  getMySources().forEach(h => box.appendChild(makeSourceChip(h, selected.has(h), removeMySource)));
+// Vùng RIÊNG: danh sách các nguồn đã chọn (giữ nguyên khi đổi danh mục). Bấm để bỏ chọn.
+function renderSelected(){
+  const box = $("#selectedSources"); box.innerHTML = "";
+  const arr = [...selected];
+  $("#selLabel").style.display = arr.length ? "" : "none";
+  $("#selCount").textContent = String(arr.length);
+  arr.forEach(h => box.appendChild(sourceChip(h, true, { onClick: () => toggleSource(h) })));
 }
-// Dựng lại 2 vùng nguồn + bỏ chọn những nguồn không còn hiển thị (do đóng mục).
-function refreshSources(){
-  const vis = visibleKeys();
-  for(const h of [...selected]) if(!vis.has(lc(h))) selected.delete(h);
-  buildSuggestChips();
-  buildMyChips();
+function selectAllInCategory(on){
+  if(!openCat) return;
+  catSourcesOf(openCat).forEach(h => { if(on){ if(!isSel(h)) selected.add(h); } else unselectByKey(lc(h)); });
+  renderCategory(); renderSelected();
 }
-function removeMySource(h, chip){
+function removeMySource(h){
   saveMySources(getMySources().filter(x => lc(x) !== lc(h)));
   unselectByKey(lc(h));
   pushSourcesToServer();
-  refreshSources();   // kênh vừa xóa có thể quay lại làm gợi ý nếu thuộc chủ đề đang mở
+  renderCategory(); renderSelected();
 }
 function buildChips(){
   selected.clear();
+  openCat = loadOpen();
   buildTopicChips();
-  refreshSources();
-  status.textContent = "Bấm một mục để mở, rồi tích các nguồn muốn tải.";
+  renderCategory();
+  renderSelected();
+  status.textContent = "Bấm một danh mục để xem nguồn, rồi tích nguồn muốn tải.";
 }
 function addSource(){
   const inp = $("#newSource");
@@ -704,9 +759,9 @@ function addSource(){
     status.textContent = `@${h} đã có trong Nguồn của tôi.`; inp.value = ""; return;
   }
   saveMySources([...getMySources(), h]);
-  const cur = new Set(getTopics()); cur.add(MINE); saveTopics([...cur]);   // mở mục để thấy ngay
+  openCat = MINE; saveOpen();   // mở danh mục Nguồn của tôi để thấy ngay
   pushSourcesToServer();
-  buildTopicChips(); refreshSources();
+  buildTopicChips(); renderCategory();
   inp.value = ""; status.textContent = `Đã thêm @${h} vào Nguồn của tôi. Tích chọn rồi bấm “Tải tin đã chọn”.`;
 }
 // ----- Khoảng thời gian kéo tin gần nhất (6/12/24h, mặc định 24h) -----
