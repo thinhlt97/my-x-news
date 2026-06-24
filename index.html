@@ -183,7 +183,10 @@
   .dict-in input{flex:1;min-width:0;padding:.45rem .6rem;border:1px solid var(--rule-strong);border-radius:6px;
     font-family:"Be Vietnam Pro";font-size:.9rem;background:#fbf8f0;color:var(--ink)}
   .dict-in input:focus{outline:none;border-color:var(--red)}
-  .dict-in button{background:var(--ink);color:var(--paper);padding:.45rem .7rem;font-size:.82rem;border-radius:6px}
+  .dict-go{display:flex;gap:.4rem;margin-bottom:.7rem}
+  .dict-go button{flex:1;background:var(--ink);color:var(--paper);padding:.45rem .5rem;font-size:.82rem;border-radius:6px}
+  .dict-go button.dict-pro{background:var(--red)}
+  .dict-go button.dict-pro:hover{background:var(--red-deep)}
   .dword{font-family:"Newsreader",serif;font-weight:600;font-size:1.3rem;color:var(--ink);word-break:break-word}
   .dipa{font-family:"Newsreader",serif;color:var(--red-deep);font-size:1rem;margin:.15rem 0 .55rem}
   .dbtns{display:flex;gap:.5rem;margin:.55rem 0 .7rem}
@@ -191,6 +194,13 @@
   .dbtn:hover{background:var(--red-deep)}
   .dbtn.uk{background:var(--vi)}.dbtn.uk:hover{background:#16314f}
   .dlink{display:inline-block;font-size:.8rem;color:var(--red);text-decoration:underline;text-underline-offset:2px}
+  .dsenses{margin:0 0 .7rem;display:flex;flex-direction:column;gap:.6rem}
+  .dsense{border-left:2px solid var(--rule-strong);padding-left:.6rem}
+  .dpos{font-size:.74rem;font-weight:600;color:var(--red);text-transform:uppercase;letter-spacing:.02em}
+  .dmean{font-size:.92rem;color:var(--ink);line-height:1.45;margin-top:.1rem}
+  .dex{font-size:.82rem;line-height:1.45;margin-top:.25rem}
+  .dex .dex-en{color:var(--ink-soft);font-style:italic}
+  .dex .dex-vi{color:var(--ink-faint);display:block}
   .dict-close{display:none;position:absolute;top:.45rem;right:.6rem;background:none;border:none;
     font-size:1.5rem;color:var(--ink-soft);line-height:1}
   #dictFab{display:none;position:fixed;right:1.1rem;bottom:1.3rem;z-index:55;width:54px;height:54px;
@@ -279,8 +289,8 @@
         <span id="vSelCount">Đã chọn 0</span>
       </div>
       <div style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap">
-        <button class="btn-go" id="makeQuizGemini">Tạo đề (Gemini)</button>
-        <button class="btn-go" id="makeQuizGroq" style="background:var(--ink)">Tạo đề (Groq)</button>
+        <button class="btn-go" id="makeQuizGemini">Tạo đề (Gemini Pro)</button>
+        <button class="btn-go" id="makeQuizGeminiFree" style="background:var(--ink)">Tạo đề (Gemini)</button>
         <button class="btn-go" id="makeQuizClaudeHaiku" style="background:#c4633a">Tạo đề (Claude Haiku)</button>
         <button class="btn-go" id="makeQuizClaudeSonnet" style="background:#8a3b1e">Tạo đề (Claude Sonnet)</button>
         <span id="vstatus"></span>
@@ -305,20 +315,23 @@
 <!-- Cột phải: tra phát âm US / UK (kiểu từ điển Cambridge) -->
 <aside class="side" id="dictPanel" aria-label="Tra phát âm">
   <button class="dict-close" id="dictClose" title="Đóng">×</button>
-  <div class="side-h">📖 Tra phát âm (US / UK)</div>
+  <div class="side-h">📖 Tra từ điển (nghĩa + phát âm)</div>
   <div class="dict-in">
     <input id="dictWord" autocomplete="off" placeholder="Dán hoặc gõ từ rồi Enter">
-    <button id="dictGo">Tra</button>
   </div>
-  <div id="dictResult" class="dict-empty">Nhập một từ để nghe phát âm Anh-Mỹ (US) và Anh-Anh (UK), kèm IPA và link mở trên Cambridge.</div>
+  <div class="dict-go">
+    <button id="dictGoPro" class="dict-pro">Tra (Gemini Pro)</button>
+    <button id="dictGoFree">Tra (Gemini)</button>
+  </div>
+  <div id="dictResult" class="dict-empty">Nhập một từ để xem nghĩa tiếng Việt + ví dụ, nghe phát âm Anh-Mỹ (US) và Anh-Anh (UK), kèm IPA và link mở trên Cambridge.</div>
 </aside>
-<button id="dictFab" title="Tra phát âm US / UK">📖</button>
+<button id="dictFab" title="Tra từ điển">📖</button>
 
 <script>
 // ===== CẤU HÌNH — sửa nếu URL proxy của bạn khác =====
 const WORKER_URL = "https://x-translate-proxy.vercel.app/api/translate";
 // Nhãn hiển thị đẹp cho từng provider (giá trị gửi proxy giữ nguyên dạng kebab).
-const PROVIDER_LABEL = { gemini:"Gemini", groq:"Groq", "claude-haiku":"Claude Haiku", "claude-sonnet":"Claude Sonnet" };
+const PROVIDER_LABEL = { gemini:"Gemini Pro", "gemini-free":"Gemini", groq:"Groq", "claude-haiku":"Claude Haiku", "claude-sonnet":"Claude Sonnet" };
 const pLabel = p => PROVIDER_LABEL[p] || p;
 // digest.json không còn dùng — giờ kéo tin theo yêu cầu qua proxy.
 // "Nguồn của tôi" mặc định lần đầu (lấy phần sau x.com/, không có @). Người dùng thêm/xóa thoải mái.
@@ -830,8 +843,8 @@ function makeCard(handle, time, text){
     `<div class="card-head"><span class="handle">@${esc(handle)}</span><span class="meta-time">${esc(time)}</span></div>`
   + `<div class="card-orig">${esc(text)}</div>`
   + `<div class="card-actions">`
-  +   `<button class="btn-translate" data-p="gemini">Dịch (Gemini)</button>`
-  +   `<button class="btn-translate btn-translate-alt" data-p="groq">Dịch (Groq)</button>`
+  +   `<button class="btn-translate" data-p="gemini">Dịch (Gemini Pro)</button>`
+  +   `<button class="btn-translate btn-translate-alt" data-p="gemini-free">Dịch (Gemini)</button>`
   +   `<button class="btn-translate btn-translate-c1" data-p="claude-haiku">Dịch (Claude Haiku)</button>`
   +   `<button class="btn-translate btn-translate-c2" data-p="claude-sonnet">Dịch (Claude Sonnet)</button>`
   +   `<span class="cstatus" style="font-size:.8rem;color:var(--ink-soft)"></span>`
@@ -924,7 +937,7 @@ $("#vRandom").addEventListener("click", () => {
   $("#vstatus").textContent = `Đã chọn ngẫu nhiên ${pick.length} từ — bấm “Tạo đề” để ôn.`;
 });
 $("#makeQuizGemini").addEventListener("click", () => makeQuiz("gemini"));
-$("#makeQuizGroq").addEventListener("click", () => makeQuiz("groq"));
+$("#makeQuizGeminiFree").addEventListener("click", () => makeQuiz("gemini-free"));
 $("#makeQuizClaudeHaiku").addEventListener("click", () => makeQuiz("claude-haiku"));
 $("#makeQuizClaudeSonnet").addEventListener("click", () => makeQuiz("claude-sonnet"));
 $("#codeSave").addEventListener("click", () => {
@@ -1102,37 +1115,62 @@ function playAccent(word, accent){
   const lang = accent === "us" ? "en-US" : "en-GB";
   playFromUrls([ oxfordUrl(word, accent), ttsUrl(word, accent) ], () => speak(word, lang));
 }
-function renderDict(word, ipa){
+// senses: [{pos, meaning_vi, example_en, example_vi}]; note: dòng cảnh báo (vd. không lấy được nghĩa).
+function renderDict(word, ipa, senses, note){
   const el = $("#dictResult"); if(!el) return;
   el.classList.remove("dict-empty");
+  let sensesHtml = "";
+  if(Array.isArray(senses) && senses.length){
+    sensesHtml = `<div class="dsenses">` + senses.map(s => {
+      const ex = (s.example_en || s.example_vi)
+        ? `<div class="dex"><span class="dex-en">${esc(s.example_en||"")}</span>`
+          + (s.example_vi ? `<span class="dex-vi">${esc(s.example_vi)}</span>` : "") + `</div>`
+        : "";
+      return `<div class="dsense">`
+        + (s.pos ? `<div class="dpos">${esc(s.pos)}</div>` : "")
+        + `<div class="dmean">${esc(s.meaning_vi||"")}</div>` + ex + `</div>`;
+    }).join("") + `</div>`;
+  }
   el.innerHTML =
       `<div class="dword">${esc(word)}</div>`
     + (ipa ? `<div class="dipa">${esc(ipa)}</div>` : "")
     + `<div class="dbtns"><button class="dbtn us">🔊 US</button><button class="dbtn uk">🔊 UK</button></div>`
+    + sensesHtml
+    + (note ? `<div class="dhint">${esc(note)}</div>` : "")
     + `<a class="dlink" target="_blank" rel="noopener"`
     + ` href="https://dictionary.cambridge.org/dictionary/english/${encodeURIComponent(word)}">Mở trên Cambridge ↗</a>`;
   el.querySelector(".dbtn.us").addEventListener("click", () => playAccent(word, "us"));
   el.querySelector(".dbtn.uk").addEventListener("click", () => playAccent(word, "uk"));
 }
-async function dictLookup(raw){
+async function dictLookup(raw, provider){
   const word = (raw||"").trim().toLowerCase().replace(/\s+/g," ");
   if(!word) return;
+  provider = provider || "gemini-free";
   const el = $("#dictResult"); el.classList.remove("dict-empty");
-  el.innerHTML = `<div class="dword">${esc(word)}</div><div class="dhint"><span class="spin"></span>Đang tra...</div>`;
-  let ipa = "";
+  el.innerHTML = `<div class="dword">${esc(word)}</div><div class="dhint"><span class="spin"></span>Đang tra nghĩa (${pLabel(provider)})...</div>`;
+  let ipa = "", senses = [], note = "";
   try{
-    const r = await fetch("https://api.dictionaryapi.dev/api/v2/entries/en/" + encodeURIComponent(word));
-    if(r.ok){
-      const d = await r.json();
-      const phs = (d[0] && d[0].phonetics) || [];
-      ipa = (phs.find(p => p.text) || {}).text || (d[0] && d[0].phonetic) || "";
-    }
-  }catch(e){}
-  renderDict(word, ipa);
+    const d = await callProxy({ define: word, provider }, null);
+    ipa = d && d.ipa || "";
+    senses = (d && Array.isArray(d.senses)) ? d.senses : [];
+  }catch(e){
+    note = "Không lấy được nghĩa (" + e.message + ") — vẫn nghe được phát âm bên dưới.";
+    // dự phòng: lấy IPA từ Free Dictionary API để ít nhất có phiên âm.
+    try{
+      const r = await fetch("https://api.dictionaryapi.dev/api/v2/entries/en/" + encodeURIComponent(word));
+      if(r.ok){
+        const dd = await r.json();
+        const phs = (dd[0] && dd[0].phonetics) || [];
+        ipa = (phs.find(p => p.text) || {}).text || (dd[0] && dd[0].phonetic) || "";
+      }
+    }catch(_){}
+  }
+  renderDict(word, ipa, senses, note);
   playAccent(word, "us");   // tra xong đọc luôn giọng US cho tiện
 }
-$("#dictGo").addEventListener("click", () => dictLookup($("#dictWord").value));
-$("#dictWord").addEventListener("keydown", e => { if(e.key === "Enter"){ e.preventDefault(); dictLookup(e.target.value); } });
+$("#dictGoPro").addEventListener("click", () => dictLookup($("#dictWord").value, "gemini"));
+$("#dictGoFree").addEventListener("click", () => dictLookup($("#dictWord").value, "gemini-free"));
+$("#dictWord").addEventListener("keydown", e => { if(e.key === "Enter"){ e.preventDefault(); dictLookup(e.target.value, "gemini-free"); } });
 $("#dictFab").addEventListener("click", () => { $("#dictPanel").classList.add("open"); $("#dictWord").focus(); });
 $("#dictClose").addEventListener("click", () => $("#dictPanel").classList.remove("open"));
 if(window.speechSynthesis){ speechSynthesis.getVoices(); speechSynthesis.onvoiceschanged = () => {}; }
