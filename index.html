@@ -154,6 +154,17 @@
   .empty{text-align:center;color:var(--ink-faint);padding:2.5rem 1rem;font-family:"Newsreader",serif;font-style:italic;font-size:1.05rem}
 
   /* Quiz */
+  .qwords{background:var(--paper-2);border:1px solid var(--rule-strong);margin-bottom:1rem;border-radius:3px}
+  .qwords>summary{padding:.7rem 1rem;cursor:pointer;font-weight:700;font-size:.9rem;color:var(--ink);list-style:none}
+  .qwords>summary::-webkit-details-marker{display:none}
+  .qwords>summary::before{content:"▸ ";color:var(--red)}
+  .qwords[open]>summary::before{content:"▾ "}
+  .qwords-list{padding:0 1rem 1rem;display:flex;flex-direction:column;gap:.45rem}
+  .qword{font-size:.9rem;color:var(--ink-soft);line-height:1.4;border-top:1px dashed var(--rule-strong);padding-top:.45rem}
+  .qword:first-child{border-top:none;padding-top:0}
+  .qword b{color:var(--ink)}
+  .qword i{color:var(--ink-faint);font-style:normal;font-family:"Newsreader",serif}
+  .qword .qpos{font-size:.72rem;color:var(--ink-faint);font-style:italic;margin-left:.2rem}
   .qbar{background:var(--paper-2);border:1px solid var(--rule-strong);padding:.7rem 1rem;margin-bottom:1.2rem;
     display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.6rem;font-weight:600;font-size:.95rem}
   .qcard{background:#fbf8f0;border:1px solid var(--rule-strong);box-shadow:var(--shadow);padding:1.1rem 1.2rem;margin-bottom:1rem}
@@ -989,6 +1000,9 @@ function renderVocab(){
 }
 
 /* ---------- TAB ÔN TẬP ---------- */
+// Xáo trộn tại chỗ (Fisher-Yates) để thứ tự câu hỏi/đáp án không đoán được.
+function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
+
 async function makeQuiz(provider){
   const chosen = vocabCache.filter(v => vocabSelected.has(v.word));
   const vstatus = $("#vstatus");
@@ -1000,20 +1014,28 @@ async function makeQuiz(provider){
   const area = $("#quizArea");
   area.innerHTML = `<div class="empty"><span class="spin"></span> Đang tạo đề từ ${chosen.length} từ (${pLabel(provider)})...</div>`;
   try{
-    const data = await callProxy({ quiz: chosen, provider }, null);
-    const qs = (data.questions||[]).slice(0,10);
+    // Xáo thứ tự từ trước khi gửi → các câu hỏi không bám theo thứ tự danh sách.
+    const sent = shuffle(chosen.slice());
+    const data = await callProxy({ quiz: sent, provider }, null);
+    const qs = shuffle((data.questions||[]).slice(0,10));   // xáo lại thứ tự câu hỏi cho chắc
     if(!qs.length) throw new Error("không nhận được câu hỏi");
-    renderQuiz(qs);
+    renderQuiz(qs, chosen);
     vstatus.textContent = "";
   }catch(e){
     area.innerHTML = `<div class="err">Không tạo được đề: ${esc(e.message)}. Thử lại sau.</div>`;
     vstatus.textContent = "";
   }
 }
-function renderQuiz(questions){
+function renderQuiz(questions, chosen){
   const area = $("#quizArea");
   let answered = 0, score = 0;
-  area.innerHTML = `<div class="qbar"><span id="qscore">Đúng 0/${questions.length}</span>`
+  // Mục tra nhanh: bấm để mở danh sách các từ đang ôn (khỏi phải sang tab Từ vựng tìm).
+  const words = chosen || vocabCache.filter(v => vocabSelected.has(v.word));
+  const cheat = words.length ? `<details class="qwords"><summary>📋 Xem nghĩa ${words.length} từ đang ôn</summary><div class="qwords-list">`
+    + words.map(v => `<div class="qword"><b>${esc(v.word)}</b>${v.ipa?` <i>/${esc(v.ipa)}/</i>`:""}`
+      + `${v.pos?` <span class="qpos">${esc(v.pos)}</span>`:""} — ${esc(v.meaning_vi||"")}</div>`).join("")
+    + `</div></details>` : "";
+  area.innerHTML = cheat + `<div class="qbar"><span id="qscore">Đúng 0/${questions.length}</span>`
     + `<button class="btn-ghost" id="qredo">Làm đề khác</button></div><div id="qlist"></div>`;
   $("#qredo").addEventListener("click", () => activateTab("vocab"));
   const qlist = $("#qlist");
