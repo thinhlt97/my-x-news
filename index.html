@@ -196,6 +196,13 @@
   .qopt.correct{background:var(--green-bg);border-color:var(--green);color:var(--green);font-weight:600}
   .qopt.wrong{background:#fbeaec;border-color:var(--red);color:var(--red-deep)}
   .qopt:disabled{cursor:default}
+  /* Giải thích + dịch nghĩa, hiện ra sau khi chọn đáp án */
+  .qexp{margin-top:.8rem;padding:.75rem .95rem;background:var(--paper-2);border:1px solid var(--rule-strong);
+    border-left:3px solid var(--green);border-radius:3px;font-size:.88rem;line-height:1.55;color:var(--ink-soft)}
+  .qexp>div+div{margin-top:.4rem}
+  .qexp b{color:var(--ink)}
+  .qexp .qexp-ans b{color:var(--green)}
+  .qexp .qexp-vi{color:var(--vi)}
   .err{background:#fbeaec;border:1px solid var(--red);color:var(--red-deep);padding:.6rem .9rem;font-size:.85rem;border-radius:3px;margin-top:.6rem}
   .hint{font-size:.74rem;color:var(--ink-faint);margin:.5rem 0 0;line-height:1.5}
   .codebar{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;margin-bottom:.5rem}
@@ -1097,6 +1104,12 @@ function renderQuiz(questions, chosen){
     (q.options||[]).forEach((opt,oi) => {
       h += `<button class="qopt" data-q="${qi}" data-o="${oi}"><span class="lab">${"ABCD"[oi]}.</span>${esc(opt)}</button>`;
     });
+    // Khối giải thích + dịch nghĩa: dựng sẵn, ẩn đi, lộ ra sau khi chọn đáp án.
+    const correctText = (q.options||[])[q.correct] || "";
+    const expParts = [`<div class="qexp-ans"><b>Đáp án đúng:</b> ${"ABCD"[q.correct]}. ${esc(correctText)}</div>`];
+    if(q.vi) expParts.push(`<div class="qexp-vi"><b>Dịch:</b> ${esc(q.vi)}</div>`);
+    if(q.explain) expParts.push(`<div class="qexp-why"><b>Giải thích:</b> ${esc(q.explain)}</div>`);
+    h += `<div class="qexp" hidden>${expParts.join("")}</div>`;
     card.innerHTML = h;
     qlist.appendChild(card);
     card.querySelectorAll(".qopt").forEach(btn => btn.addEventListener("click", () => {
@@ -1106,6 +1119,7 @@ function renderQuiz(questions, chosen){
       opts.forEach((o,idx) => { o.disabled = true; if(idx===correct) o.classList.add("correct"); });
       if(oi === correct) score++; else btn.classList.add("wrong");
       answered++;
+      const exp = card.querySelector(".qexp"); if(exp) exp.hidden = false;   // lộ giải thích + dịch
       $("#qscore").textContent = `Đúng ${score}/${questions.length}`;
     }));
   });
