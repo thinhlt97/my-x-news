@@ -161,6 +161,20 @@
   .vfreq.lv4{background:var(--red-deep);color:#fff;border-color:var(--red-deep)}
   .empty{text-align:center;color:var(--ink-faint);padding:2.5rem 1rem;font-family:"Newsreader",serif;font-style:italic;font-size:1.05rem}
 
+  /* Đã ôn (danh sách các từ đã chọn để tạo đề, gom theo từng lần ôn) */
+  .rsession{margin:0 0 1.3rem}
+  .rsession-h{font-size:.78rem;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-soft);font-weight:700;
+    display:flex;align-items:center;gap:.5rem;border-bottom:2px solid var(--ink);padding-bottom:.4rem;margin-bottom:.65rem}
+  .rsession-h .rcnt{color:var(--ink-faint);font-weight:500;text-transform:none;letter-spacing:0}
+  .rsession-h .rdel{margin-left:auto;background:none;border:none;color:var(--ink-faint);cursor:pointer;font-size:1.25rem;line-height:1;padding:0 .2rem}
+  .rsession-h .rdel:hover{color:var(--red)}
+  .rword{background:#fbf8f0;border:1px solid var(--rule-strong);padding:.5rem .8rem;margin-bottom:.5rem}
+  .rword .top{display:flex;gap:.5rem;align-items:baseline;flex-wrap:wrap}
+  .rword .vw{font-family:"Newsreader",serif;font-weight:600;font-size:1.02rem;color:var(--ink)}
+  .rword .vipa{font-family:"Newsreader",serif;color:var(--red-deep);font-size:.88rem}
+  .rword .vpos{font-style:italic;color:var(--red);font-size:.76rem}
+  .rword .vmean{font-size:.9rem;color:var(--vi);margin-top:.1rem}
+
   /* Quiz */
   .qwords{background:var(--paper-2);border:1px solid var(--rule-strong);margin-bottom:1rem;border-radius:3px}
   .qwords>summary{padding:.7rem 1rem;cursor:pointer;font-weight:700;font-size:.9rem;color:var(--ink);list-style:none}
@@ -270,6 +284,7 @@
     <button class="tab active" data-tab="news">Tin tức</button>
     <button class="tab" data-tab="vocab">Từ vựng đã lưu <span class="badge" id="vcount">0</span></button>
     <button class="tab" data-tab="quiz">Ôn tập</button>
+    <button class="tab" data-tab="reviewed">Đã ôn <span class="badge" id="rcount">0</span></button>
   </nav>
 
   <!-- ===== TAB: TIN TỨC ===== -->
@@ -346,6 +361,18 @@
   <!-- ===== TAB: ÔN TẬP ===== -->
   <section class="view" id="view-quiz">
     <div id="quizArea"><div class="empty">Vào mục “Từ vựng đã lưu”, chọn từ rồi bấm “Tạo đề ôn tập”.</div></div>
+  </section>
+
+  <!-- ===== TAB: ĐÃ ÔN ===== -->
+  <section class="view" id="view-reviewed">
+    <div class="panel">
+      <div class="src-label">
+        <span>Các từ bạn đã chọn để tạo đề ôn tập — lưu lại để xem lại bất cứ lúc nào</span>
+        <span class="mini" id="rClear">Xóa hết</span>
+      </div>
+      <p class="hint" style="margin-bottom:0">Mỗi lần bạn tạo đề, các từ trong đề đó được thêm lên đầu danh sách này (kể cả từ trùng). Danh sách này độc lập với “Từ vựng đã lưu” — xóa từ bên kia không làm mất từ ở đây.</p>
+    </div>
+    <div id="reviewedList"></div>
   </section>
 </div>
 
@@ -557,6 +584,78 @@ function pushSourcesToServer(){
   }).catch(()=>{});
 }
 
+/* ---------- "Đã ôn": nhật ký các từ đã chọn để tạo đề (gom theo từng lần ôn) ----------
+   Mỗi lần tạo đề thành công, các từ trong đề được thêm 1 "lần ôn" (batch) lên ĐẦU danh sách
+   (mới nhất ở trên, cho phép trùng). Lưu kèm nghĩa nên vẫn xem lại được dù đã xóa bên Từ vựng.
+   Đồng bộ đa thiết bị qua mã cá nhân (vocab-worker, kind=reviewed). */
+const RKEY = "touchline_reviewed";
+function getReviewed(){ try{ const a = JSON.parse(localStorage.getItem(RKEY)); return Array.isArray(a) ? a : []; }catch(e){ return []; } }
+function saveReviewed(arr){ try{ localStorage.setItem(RKEY, JSON.stringify(arr)); }catch(e){} }
+function reviewedWordCount(){ return getReviewed().reduce((n,b)=> n + ((b && b.words) ? b.words.length : 0), 0); }
+function updateReviewedBadge(){ const el = $("#rcount"); if(el) el.textContent = reviewedWordCount(); }
+function addReviewedBatch(words){
+  if(!words || !words.length) return;
+  const batch = { ts: Date.now(), words: words.map(v => ({ word:v.word, ipa:v.ipa||"", pos:v.pos||"", meaning_vi:v.meaning_vi||"" })) };
+  const arr = getReviewed(); arr.unshift(batch);   // lần ôn mới nhất lên đầu
+  saveReviewed(arr);
+  updateReviewedBadge(); renderReviewed();
+  pushReviewedToServer();
+}
+// Gộp hai danh sách lần-ôn theo mốc thời gian (ts là khóa), sắp xếp mới→cũ.
+function mergeReviewed(a, b){
+  const seen = new Set(), out = [];
+  [...(a||[]), ...(b||[])].forEach(x => {
+    if(!x || typeof x.ts !== "number" || seen.has(x.ts)) return;
+    seen.add(x.ts); out.push(x);
+  });
+  out.sort((x,y)=> y.ts - x.ts);
+  return out;
+}
+async function pullReviewedFromServer(){
+  if(!personalCode) return;
+  try{
+    const r = await fetch(VOCAB_URL + "?code=" + encodeURIComponent(personalCode) + "&kind=reviewed");
+    const d = await r.json();
+    if(Array.isArray(d.reviewed)) saveReviewed(mergeReviewed(getReviewed(), d.reviewed));
+  }catch(e){}
+}
+function pushReviewedToServer(){
+  if(!personalCode) return;
+  fetch(VOCAB_URL + "?code=" + encodeURIComponent(personalCode) + "&kind=reviewed", {
+    method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ reviewed: getReviewed() })
+  }).catch(()=>{});
+}
+function fmtReviewTime(ts){
+  const d = new Date(ts), p = n => String(n).padStart(2,"0");
+  return `${p(d.getDate())}-${p(d.getMonth()+1)} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+function renderReviewed(){
+  const list = $("#reviewedList"); if(!list) return;
+  const arr = getReviewed();
+  updateReviewedBadge();
+  if(!arr.length){ list.innerHTML = `<div class="empty">Chưa có từ nào. Vào “Từ vựng đã lưu”, chọn từ rồi bấm “Tạo đề” — các từ trong đề đó sẽ xuất hiện ở đây.</div>`; return; }
+  list.innerHTML = "";
+  arr.forEach(b => {
+    const words = (b && b.words) || [];
+    const sec = document.createElement("div");
+    sec.className = "rsession";
+    let h = `<div class="rsession-h">Ôn lúc ${esc(fmtReviewTime(b.ts))} <span class="rcnt">(${words.length} từ)</span>`
+          + `<button class="rdel" title="Xóa lần ôn này">×</button></div>`;
+    words.forEach(v => {
+      h += `<div class="rword"><div class="top"><span class="vw">${esc(v.word)}</span>`
+         + (v.ipa?`<span class="vipa">${esc(v.ipa)}</span>`:``)
+         + (v.pos?`<span class="vpos">${esc(v.pos)}</span>`:``)
+         + `</div>` + (v.meaning_vi?`<div class="vmean">${esc(v.meaning_vi)}</div>`:``) + `</div>`;
+    });
+    sec.innerHTML = h;
+    sec.querySelector(".rdel").addEventListener("click", () => {
+      saveReviewed(getReviewed().filter(x => x.ts !== b.ts));
+      pushReviewedToServer(); renderReviewed();
+    });
+    list.appendChild(sec);
+  });
+}
+
 /* ---------- Từ vựng: lưu trên server theo mã cá nhân (đồng bộ nhiều thiết bị) ---------- */
 let vocabCache = [];
 let personalCode = localStorage.getItem(CODEKEY) || "";
@@ -605,6 +704,10 @@ async function connectCode(code){
     saveMySources(dedup([...srv.mySources, ...getMySources()]));
     pushSourcesToServer(); buildChips();
   }catch(e){}
+  // "Đã ôn": gộp server + local rồi đẩy lên (lần đầu kết nối không mất dữ liệu máy nào).
+  await pullReviewedFromServer();
+  pushReviewedToServer();
+  renderReviewed();
 }
 
 function setCodeStatus(msg){ const el = $("#codeStatus"); if(el) el.textContent = msg; }
@@ -629,7 +732,7 @@ async function initVocab(){
 }
 
 /* ---------- Chuyển tab (nhớ vị trí cuộn của từng tab) ---------- */
-const scrollPos = { news: 0, vocab: 0, quiz: 0 };
+const scrollPos = { news: 0, vocab: 0, quiz: 0, reviewed: 0 };
 function activateTab(name){
   const cur = document.querySelector(".tab.active");
   if(cur){ scrollPos[cur.dataset.tab] = window.scrollY; }   // lưu vị trí tab đang rời
@@ -639,6 +742,7 @@ function activateTab(name){
   $("#view-" + name).classList.add("active");
   document.body.classList.toggle("tab-news", name === "news");   // cột trái chỉ hiện ở tab tin tức
   if(name === "vocab") renderVocab();
+  if(name === "reviewed") renderReviewed();
   window.scrollTo(0, scrollPos[name] || 0);                 // về đúng chỗ đọc dở
   updatePin();                                              // cập nhật bài đang đọc ở cột trái
 }
@@ -1010,6 +1114,11 @@ document.addEventListener("click", e => {
   if(sh && sh.classList.contains("open") && !sh.contains(e.target) && !e.target.closest("#qfab"))
     sh.classList.remove("open");
 });
+$("#rClear").addEventListener("click", () => {
+  if(!getReviewed().length) return;
+  if(!confirm("Xóa toàn bộ danh sách “Đã ôn”?")) return;
+  saveReviewed([]); pushReviewedToServer(); renderReviewed();
+});
 $("#codeSave").addEventListener("click", () => {
   const code = $("#codeInput").value.trim();
   if(!/^[A-Za-z0-9_-]{4,64}$/.test(code)){ setCodeStatus("Mã không hợp lệ (4-64 ký tự: chữ, số, gạch)."); return; }
@@ -1071,6 +1180,7 @@ async function makeQuiz(provider){
     renderQuiz(qs, chosen);
     // Đếm tần suất: tăng số lần đã tạo đề cho từng từ vừa ôn (chosen là tham chiếu trong vocabCache).
     chosen.forEach(v => { v.quizCount = (v.quizCount || 0) + 1; });
+    addReviewedBatch(chosen);   // lưu các từ vừa ôn sang tab "Đã ôn" (mới nhất lên đầu)
     pushVocab();        // đồng bộ số đếm lên server (gắn liền mỗi từ)
     renderVocab();      // cập nhật huy hiệu tần suất ở tab Từ vựng
     vstatus.textContent = "";
@@ -1279,6 +1389,8 @@ if(window.speechSynthesis){ speechSynthesis.getVoices(); speechSynthesis.onvoice
 
 /* ---------- Khởi động ---------- */
 initVocab();
+updateReviewedBadge();   // hiện số từ "Đã ôn" ngay từ bản local
+if(personalCode) pullReviewedFromServer().then(() => renderReviewed());   // có mã thì gộp bản trên server
 buildChips();   // dựng ngay từ bản local để không phải chờ mạng
 pullSourcesFromServer().then(() => { if(personalCode) buildChips(); });   // có mã thì đồng bộ nguồn rồi dựng lại
 
