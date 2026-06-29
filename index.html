@@ -231,8 +231,12 @@
   .lbtn.ghost{background:transparent;color:var(--ink-soft);border:1px solid var(--rule-strong)}
   .lbtn:disabled{opacity:.5;cursor:default}
   .lspeed{display:inline-flex;align-items:center;gap:.4rem;font-size:.8rem;color:var(--ink-soft)}
-  .lspeed input{accent-color:var(--red)}
+  .lspeed input{accent-color:var(--red);width:90px}
+  .lseekwrap{display:flex;align-items:center;gap:.6rem;margin-top:.8rem}
+  .lseek{flex:1;accent-color:var(--red);height:4px;cursor:pointer}
+  .ltime{font-size:.76rem;color:var(--ink-soft);font-variant-numeric:tabular-nums;min-width:2.6em;text-align:center}
   .lnow{font-size:.78rem;color:var(--ink-faint);margin-top:.5rem;min-height:1em}
+  #lfallback{margin-top:.6rem;font-size:.82rem}
   .llimit{display:inline-block;font-size:.72rem;font-weight:700;color:var(--red);
     background:var(--paper-2);border:1px solid var(--rule-strong);border-radius:2px;padding:.05rem .4rem;margin-left:.4rem}
   .lfill{width:100%;background:#fff;border:1px solid var(--rule-strong);border-radius:3px;
@@ -787,7 +791,7 @@ function activateTab(name){
   document.querySelector(`.tab[data-tab="${name}"]`).classList.add("active");
   $("#view-" + name).classList.add("active");
   document.body.classList.toggle("tab-news", name === "news");   // cột trái chỉ hiện ở tab tin tức
-  if(name !== "listen" && window.speechSynthesis) speechSynthesis.cancel();   // rời tab nghe thì tắt giọng đang đọc
+  if(name !== "listen"){ if(window.speechSynthesis) speechSynthesis.cancel(); if(curAudioPlayer) curAudioPlayer.pause(); }   // rời tab nghe thì tạm dừng audio
   if(name === "vocab") renderVocab();
   if(name === "reviewed") renderReviewed();
   window.scrollTo(0, scrollPos[name] || 0);                 // về đúng chỗ đọc dở
@@ -1164,6 +1168,17 @@ document.addEventListener("click", e => {
   if(e.target.closest(".qfab")) return;   // bấm nút nổi thì để handler của nó tự bật/tắt
   document.querySelectorAll(".qsheet.open").forEach(sh => { if(!sh.contains(e.target)) sh.classList.remove("open"); });
 });
+// Phím tắt trình phát luyện nghe: phím cách = phát/dừng, ◀ ▶ = tua ±2 giây.
+document.addEventListener("keydown", e => {
+  if(!curAudioPlayer) return;
+  const tab = document.querySelector(".tab.active");
+  if(!tab || tab.dataset.tab !== "listen") return;
+  const tag = (e.target.tagName || "").toUpperCase();
+  if(tag === "INPUT" || tag === "TEXTAREA" || e.target.isContentEditable) return;   // đang gõ điền từ thì bỏ qua
+  if(e.code === "Space" || e.key === " "){ e.preventDefault(); curAudioPlayer.toggle(); }
+  else if(e.code === "ArrowLeft"){ e.preventDefault(); curAudioPlayer.seek(-2); }
+  else if(e.code === "ArrowRight"){ e.preventDefault(); curAudioPlayer.seek(2); }
+});
 $("#rClear").addEventListener("click", () => {
   if(!getReviewed().length) return;
   if(!confirm("Xóa toàn bộ danh sách “Đã ôn”?")) return;
@@ -1286,6 +1301,66 @@ function renderQuiz(questions, chosen){
 }
 
 /* ---------- TAB LUYỆN NGHE (IELTS-style) ---------- */
+let curAudioPlayer = null;   // trình phát audio đang hiển thị (cho phím tắt Space / ◀ ▶)
+
+// Giải mã base64 -> Uint8Array.
+function b64ToBytes(b64){
+  const bin = atob(b64); const len = bin.length; const out = new Uint8Array(len);
+  for(let i=0;i<len;i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+// Gemini TTS trả PCM 16-bit thô (mime "audio/L16;...;rate=24000"). Bọc header WAV để <audio> phát + tua được.
+function pcmToWavUrl(b64, mime){
+  const bytes = b64ToBytes(b64);
+  if(/wav/i.test(mime || "")){ return URL.createObjectURL(new Blob([bytes], { type:"audio/wav" })); }
+  const rateM = /rate=(\d+)/i.exec(mime || ""); const rate = rateM ? parseInt(rateM[1],10) : 24000;
+  const numCh = 1, bits = 16, byteRate = rate * numCh * bits/8, blockAlign = numCh * bits/8;
+  const buf = new ArrayBuffer(44 + bytes.length); const dv = new DataView(buf);
+  const ws = (off, s) => { for(let i=0;i<s.length;i++) dv.setUint8(off+i, s.charCodeAt(i)); };
+  ws(0,"RIFF"); dv.setUint32(4, 36 + bytes.length, true); ws(8,"WAVE"); ws(12,"fmt ");
+  dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, numCh, true);
+  dv.setUint32(24, rate, true); dv.setUint32(28, byteRate, true); dv.setUint16(32, blockAlign, true);
+  dv.setUint16(34, bits, true); ws(36,"data"); dv.setUint32(40, bytes.length, true);
+  new Uint8Array(buf, 44).set(bytes);
+  return URL.createObjectURL(new Blob([buf], { type:"audio/wav" }));
+}
+// Trình phát audio thật: tạo audio từ Gemini TTS lúc Phát lần đầu, sau đó phát/tua/đổi tốc độ tùy ý.
+function createListenAudio(turns){
+  let audio = null, url = null, loading = false, loaded = false, failed = false, lastErr = "", rate = 0.95;
+  let onStateCb = () => {}, onTimeCb = () => {};
+  async function ensure(){
+    if(loaded || loading) return;
+    loading = true; failed = false; onStateCb();
+    try{
+      const d = await callProxy({ tts: turns.map(t => ({ speaker:t.speaker, text:t.text })) }, null);
+      if(!d || !d.audio) throw new Error("không nhận được audio");
+      url = pcmToWavUrl(d.audio, d.mime || "");
+      audio = new Audio(url); audio.playbackRate = rate;
+      audio.addEventListener("timeupdate", () => onTimeCb());
+      audio.addEventListener("loadedmetadata", () => onTimeCb());
+      audio.addEventListener("durationchange", () => onTimeCb());
+      audio.addEventListener("ended", () => onStateCb());
+      audio.addEventListener("play", () => onStateCb());
+      audio.addEventListener("pause", () => onStateCb());
+      loaded = true; loading = false; onStateCb(); onTimeCb();
+    }catch(e){ loading = false; failed = true; lastErr = e.message || String(e); onStateCb(); }
+  }
+  return {
+    async play(){ await ensure(); if(audio){ try{ await audio.play(); }catch(e){} } },
+    pause(){ if(audio) audio.pause(); },
+    async toggle(){ if(!loaded){ await this.play(); return; } if(audio.paused) { try{ await audio.play(); }catch(e){} } else audio.pause(); },
+    seek(delta){ if(audio && loaded){ const d = audio.duration || 0; audio.currentTime = Math.max(0, Math.min(d, audio.currentTime + delta)); } },
+    seekTo(t){ if(audio && loaded){ const d = audio.duration || 0; audio.currentTime = Math.max(0, Math.min(d, t)); } },
+    setRate(r){ rate = r; if(audio) audio.playbackRate = r; },
+    cur(){ return audio ? audio.currentTime : 0; },
+    dur(){ return audio ? (audio.duration || 0) : 0; },
+    isPlaying(){ return audio ? !audio.paused : false; },
+    isLoading(){ return loading; }, isLoaded(){ return loaded; }, isFailed(){ return failed; }, err(){ return lastErr; },
+    reset(){ failed = false; lastErr = ""; },
+    onState(fn){ onStateCb = fn || (() => {}); }, onTime(fn){ onTimeCb = fn || (() => {}); },
+    destroy(){ if(audio) audio.pause(); if(url) URL.revokeObjectURL(url); if(curAudioPlayer === this) curAudioPlayer = null; },
+  };
+}
 // Chọn tối đa n giọng tiếng Anh KHÁC NHAU để 2 người trong hội thoại nghe phân biệt.
 function pickEnglishVoices(n){
   const vs = (window.speechSynthesis && speechSynthesis.getVoices()) || [];
@@ -1377,17 +1452,24 @@ function renderListen(data, chosen){
         + `${v.pos?` <span class="qpos">${esc(v.pos)}</span>`:""} — ${esc(v.meaning_vi||"")}</div>`).join("")
       + `</div></div>` : "";
 
-  const sp = makeSpeaker(turns);
+  const player = createListenAudio(turns);
+  curAudioPlayer = player;   // cho phím tắt Space / ◀ ▶ điều khiển
   const playerHtml = `<div class="lplayer">`
     + (data.title ? `<div class="ltitle">${esc(data.title)}</div>` : "")
-    + `<div class="lsub">Nghe đoạn hội thoại rồi trả lời. Lời thoại được ẩn — nộp bài xong sẽ hiện để xem lại.`
-    + (sp.supported ? "" : ` <b>Trình duyệt này không đọc thành tiếng được — bấm “Hiện lời thoại” để đọc.</b>`) + `</div>`
+    + `<div class="lsub">Nghe đoạn hội thoại rồi trả lời. Lời thoại được ẩn — nộp bài xong sẽ hiện để xem lại. `
+    + `<b>Phím tắt:</b> phím cách = phát/dừng, ◀ ▶ = tua 2 giây (nghe lại để bắt đáp án).</div>`
     + `<div class="lctrls">`
     + `<button class="lbtn" id="lplay" type="button">▶ Phát</button>`
-    + `<button class="lbtn ghost" id="lreplay" type="button">🔁 Nghe lại</button>`
-    + `<span class="lspeed">Tốc độ <input id="lrate" type="range" min="0.7" max="1.15" step="0.05" value="0.95"><span id="lratev">0.95×</span></span>`
-    + (sp.supported ? "" : `<button class="lbtn ghost" id="lshow" type="button">Hiện lời thoại</button>`)
-    + `</div><div class="lnow" id="lnow"></div></div>`;
+    + `<button class="lbtn ghost" id="lback" type="button" title="Tua lùi 2 giây (◀)">◀ 2s</button>`
+    + `<button class="lbtn ghost" id="lfwd" type="button" title="Tua tới 2 giây (▶)">2s ▶</button>`
+    + `<span class="lspeed">Tốc độ <input id="lrate" type="range" min="0.6" max="1.2" step="0.05" value="0.95"><span id="lratev">0.95×</span></span>`
+    + `</div>`
+    + `<div class="lseekwrap"><span class="ltime" id="lcur">0:00</span>`
+    + `<input class="lseek" id="lseek" type="range" min="0" max="0" step="0.05" value="0">`
+    + `<span class="ltime" id="ldur">0:00</span></div>`
+    + `<div class="lnow" id="lnow"></div>`
+    + `<button class="lbtn ghost" id="lfallback" type="button" hidden>🔈 Đọc bằng giọng máy (không tua được)</button>`
+    + `</div>`;
 
   let qHtml = `<div id="lqlist">`;
   questions.forEach((q, qi) => {
@@ -1419,23 +1501,44 @@ function renderListen(data, chosen){
   const lfab = $("#lfab"), lsheet = $("#lsheet");
   if(lfab && lsheet) lfab.addEventListener("click", e => { e.stopPropagation(); lsheet.classList.toggle("open"); });
 
-  // Trình phát
-  const playBtn = $("#lplay"), nowEl = $("#lnow");
-  const refreshPlay = () => { playBtn.textContent = (sp.isPlaying() && !sp.isPaused()) ? "⏸ Tạm dừng" : "▶ Phát"; };
-  sp.onState(() => {
-    refreshPlay();
-    const i = sp.current();
-    if(sp.isPlaying() && i < turns.length){ nowEl.textContent = `🔊 ${turns[i].speaker||""} — câu ${i+1}/${turns.length}`; }
-    else if(i >= turns.length && i > 0){ nowEl.textContent = "✓ Đã đọc xong — bấm 🔁 để nghe lại."; }
+  // Trình phát audio thật (tạo audio lúc bấm Phát lần đầu, sau đó tua/nghe lại thoải mái)
+  const playBtn = $("#lplay"), nowEl = $("#lnow"), seek = $("#lseek"),
+        curEl = $("#lcur"), durEl = $("#ldur"), fallbackBtn = $("#lfallback");
+  let seeking = false;
+  const refresh = () => {
+    if(player.isLoading()){ playBtn.textContent = "⏳ Đang tạo audio..."; playBtn.disabled = true; nowEl.textContent = "Lần đầu cần vài giây để tạo giọng đọc."; return; }
+    playBtn.disabled = false;
+    if(player.isFailed()){
+      playBtn.textContent = "⟳ Thử lại";
+      nowEl.textContent = "Không tạo được audio: " + (player.err() || "") + ".";
+      fallbackBtn.hidden = false;
+      return;
+    }
+    playBtn.textContent = player.isPlaying() ? "⏸ Tạm dừng" : "▶ Phát";
+    if(player.isLoaded() && !player.isPlaying() && player.cur() === 0 && nowEl.textContent.startsWith("Lần đầu")) nowEl.textContent = "";
+  };
+  const fmt = s => { s = Math.max(0, Math.floor(s||0)); return Math.floor(s/60) + ":" + String(s%60).padStart(2,"0"); };
+  const refreshTime = () => {
+    const d = player.dur(), c = player.cur();
+    if(d && isFinite(d)){ seek.max = d.toFixed(2); durEl.textContent = fmt(d); }
+    if(!seeking){ seek.value = c; }
+    curEl.textContent = fmt(c);
+  };
+  player.onState(refresh); player.onTime(refreshTime);
+  playBtn.addEventListener("click", () => { if(player.isFailed()) player.reset(); player.toggle(); setTimeout(refresh, 80); });
+  $("#lback").addEventListener("click", () => player.seek(-2));
+  $("#lfwd").addEventListener("click", () => player.seek(2));
+  seek.addEventListener("input", () => { seeking = true; curEl.textContent = fmt(parseFloat(seek.value)); });
+  seek.addEventListener("change", () => { player.seekTo(parseFloat(seek.value)); seeking = false; });
+  $("#lrate").addEventListener("input", e => { const r = parseFloat(e.target.value); player.setRate(r); $("#lratev").textContent = r.toFixed(2) + "×"; });
+  // Dự phòng: nếu Gemini TTS lỗi, đọc bằng giọng máy trình duyệt (không tua được).
+  let fb = null;
+  fallbackBtn.addEventListener("click", () => {
+    if(!fb) fb = makeSpeaker(turns);
+    if(!fb.supported){ nowEl.textContent = "Trình duyệt này cũng không hỗ trợ đọc thành tiếng."; return; }
+    if(fb.isPlaying() && !fb.isPaused()){ fb.pause(); fallbackBtn.textContent = "🔈 Đọc bằng giọng máy (không tua được)"; }
+    else { fb.play(); fallbackBtn.textContent = "⏸ Tạm dừng giọng máy"; }
   });
-  playBtn.addEventListener("click", () => {
-    if(!sp.supported){ nowEl.textContent = "Trình duyệt không hỗ trợ đọc thành tiếng — hãy bấm “Hiện lời thoại”."; return; }
-    if(sp.isPlaying() && !sp.isPaused()) sp.pause(); else sp.play();
-    setTimeout(refreshPlay, 60);   // pause/resume cập nhật trạng thái không đồng bộ
-  });
-  $("#lreplay").addEventListener("click", () => { if(sp.supported){ sp.replay(); setTimeout(refreshPlay, 60); } });
-  $("#lrate").addEventListener("input", e => { const r = parseFloat(e.target.value); sp.setRate(r); $("#lratev").textContent = r.toFixed(2) + "×"; });
-  const lshow = $("#lshow"); if(lshow) lshow.addEventListener("click", () => { $("#ltranscript").hidden = false; });
 
   // Chọn đáp án trắc nghiệm (chưa chấm — chỉ tô đậm lựa chọn)
   area.querySelectorAll("#lqlist .qopt").forEach(btn => btn.addEventListener("click", () => {
@@ -1477,7 +1580,7 @@ function renderListen(data, chosen){
     submit.disabled = true;
     $("#ltranscript").hidden = false;
   });
-  $("#lredo").addEventListener("click", () => { sp.stop(); activateTab("vocab"); });
+  $("#lredo").addEventListener("click", () => { player.destroy(); if(fb) fb.stop(); activateTab("vocab"); });
 }
 
 /* ---------- CỘT TRÁI: hiện full bài bạn đang trỏ chuột vào ----------
