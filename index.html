@@ -1426,10 +1426,7 @@ async function makeListen(provider){
     if(!data || !Array.isArray(data.transcript) || !data.transcript.length || !Array.isArray(data.questions) || !data.questions.length)
       throw new Error("không nhận được hội thoại/câu hỏi");
     renderListen(data, chosen);
-    chosen.forEach(v => { v.quizCount = (v.quizCount || 0) + 1; });
-    addReviewedBatch(chosen);   // từ vừa luyện cũng vào tab "Đã ôn"
-    pushVocab();
-    renderVocab();
+    // Luyện nghe KHÔNG tính là ôn tập: không vào tab "Đã ôn", không tăng quizCount.
     vstatus.textContent = "";
   }catch(e){
     area.innerHTML = `<div class="err">Không tạo được bài nghe: ${esc(e.message)}. Thử lại sau.</div>`;
